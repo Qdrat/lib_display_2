@@ -2,104 +2,194 @@
 #define SEGMENT_LCD_DRIVER_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
-// Тип индикатора
-typedef enum {
-    COMMON_CATHODE,
-    COMMON_ANODE
+// ============== Безопасные типы ==============
+typedef enum
+{
+    DISPLAY_OK = 0,
+    DISPLAY_ERROR_NULL_POINTER,
+    DISPLAY_ERROR_INVALID_DIGIT,
+    DISPLAY_ERROR_INVALID_CHAR,
+    DISPLAY_ERROR_MEMORY,
+    DISPLAY_ERROR_NOT_INITIALIZED,
+    DISPLAY_ERROR_INVALID_CONFIG,
+    DISPLAY_ERROR_BUFFER_OVERFLOW
+} DisplayError;
+
+typedef enum
+{
+    DISPLAY_TYPE_COMMON_CATHODE,
+    DISPLAY_TYPE_COMMON_ANODE
 } DisplayType;
+
+// Тип для символов дисплея
+typedef enum
+{
+    SEG_CHAR_0 = 0,
+    SEG_CHAR_1,
+    SEG_CHAR_2,
+    SEG_CHAR_3,
+    SEG_CHAR_4,
+    SEG_CHAR_5,
+    SEG_CHAR_6,
+    SEG_CHAR_7,
+    SEG_CHAR_8,
+    SEG_CHAR_9,
+    SEG_CHAR_A,
+    SEG_CHAR_B,
+    SEG_CHAR_C,
+    SEG_CHAR_D,
+    SEG_CHAR_E,
+    SEG_CHAR_F,
+    SEG_CHAR_G,
+    SEG_CHAR_H,
+    SEG_CHAR_I,
+    SEG_CHAR_J,
+    SEG_CHAR_K,
+    SEG_CHAR_L,
+    SEG_CHAR_M,
+    SEG_CHAR_N,
+    SEG_CHAR_O,
+    SEG_CHAR_P,
+    SEG_CHAR_Q,
+    SEG_CHAR_R,
+    SEG_CHAR_S,
+    SEG_CHAR_T,
+    SEG_CHAR_U,
+    SEG_CHAR_V,
+    SEG_CHAR_W,
+    SEG_CHAR_X,
+    SEG_CHAR_Y,
+    SEG_CHAR_Z,
+    SEG_CHAR_MINUS,      // '-'
+    SEG_CHAR_UNDERSCORE, // '_'
+    SEG_CHAR_DEGREE,     // '°'
+    SEG_CHAR_EMPTY = 0xFF
+} SegmentChar;
+
+// Тип для состояния точки
+typedef enum
+{
+    DOT_OFF = 0,
+    DOT_ON = 1
+} DotState;
+
+// Тип для направления прокрутки
+typedef enum
+{
+    SCROLL_RIGHT = 0,
+    SCROLL_LEFT = 1
+} ScrollDirection;
+
+// Тип для яркости
+typedef uint8_t BrightnessLevel; // 0-100%
 
 // Callback-функции для управления аппаратурой
 typedef void (*SegmentCallback)(uint8_t segment_mask);
-typedef void (*DigitCallback)(uint8_t digit_index, uint8_t state);
+typedef void (*DigitCallback)(uint8_t digit_index, bool state);
+typedef void (*BrightnessCallback)(BrightnessLevel brightness);
+
+// ============== Структуры данных ==============
 
 // Структура для конфигурации дисплея
-typedef struct {
-    SegmentCallback set_segments;    // Функция установки сегментов
-    DigitCallback set_digit;         // Функция управления разрядом
-    uint8_t digits_count;            // Количество разрядов
-    DisplayType type;                // Тип индикатора
+typedef struct
+{
+    SegmentCallback set_segments;      // Функция установки сегментов
+    DigitCallback set_digit;           // Функция управления разрядом
+    BrightnessCallback set_brightness; // Функция установки яркости (опционально)
+    uint8_t digits_count;              // Количество разрядов
+    DisplayType type;                  // Тип индикатора
+    BrightnessLevel brightness;        // Текущая яркость (0-100%)
 } DisplayConfig;
 
 // Структура для управления временем
 typedef struct
 {
-    uint32_t (*get_time_ms)(void); // Функция получения времени (опционально)
+    uint32_t (*get_time_ms)(void); // Функция получения времени
     uint32_t internal_counter;     // Внутренний счетчик миллисекунд
 } DisplayTime;
-
-// Функции для работы со временем
-void Display_Tick(DisplayConfig *config); // Вызывать каждую 1мс
-void Display_DelayMs(DisplayConfig *config, uint32_t ms);
 
 // Структура бегущей строки
 typedef struct
 {
-    uint8_t *text;             // Текст для отображения (массив кодов символов)
+    const SegmentChar *text;   // Текст для отображения
     uint16_t text_length;      // Длина текста
-    uint16_t current_position; // Текущая позиция в тексте
-    uint16_t display_length;   // Длина дисплея (количество разрядов)
-    uint8_t direction;         // Направление: 0 - вправо, 1 - влево
+    int16_t current_position;  // Текущая позиция в тексте
+    uint8_t display_length;    // Длина дисплея (количество разрядов)
+    ScrollDirection direction; // Направление
     uint16_t scroll_delay;     // Задержка между сдвигами в мс
     uint32_t last_scroll_time; // Время последнего сдвига
-    uint8_t enabled;           // Включена ли бегущая строка
-    uint8_t loop;              // Зациклить бесконечно или остановиться
+    bool enabled;              // Включена ли бегущая строка
+    bool loop;                 // Зациклить бесконечно
 } ScrollingText;
 
-// Функции бегущей строки
-void Scroll_Init(ScrollingText *scroll, uint8_t *text, uint16_t length,
-                 uint16_t display_len, uint8_t direction, uint16_t delay_ms, uint8_t loop);
-void Scroll_Update(ScrollingText *scroll, DisplayConfig *display);
-void Scroll_Start(ScrollingText *scroll);
-void Scroll_Stop(ScrollingText *scroll);
-void Scroll_Reset(ScrollingText *scroll);
-uint8_t Scroll_IsFinished(ScrollingText *scroll);
+// ============== Макросы для проверки ==============
+#define DISPLAY_CHECK_INIT()                      \
+    do                                            \
+    {                                             \
+        if (!display_initialized)                 \
+            return DISPLAY_ERROR_NOT_INITIALIZED; \
+    } while (0)
 
-// Вспомогательные функции для работы со строками
-uint16_t String_ToSegmentCodes(const char *str, uint8_t *buffer, uint16_t buffer_size);
+#define DISPLAY_CHECK_PTR(ptr)                 \
+    do                                         \
+    {                                          \
+        if (!(ptr))                            \
+            return DISPLAY_ERROR_NULL_POINTER; \
+    } while (0)
 
-// API функции
-void Display_Init(DisplayConfig* config);
-void Display_Update(DisplayConfig* config);
-void Display_SetNumber(uint32_t number);
-void Display_SetFloat(float number, uint8_t decimal_places);
-void Display_SetCharacters(const uint8_t* characters);
-void Display_SetCharacter(uint8_t digit, uint8_t character);
-void Display_SetDot(uint8_t digit, uint8_t state);
-void Display_Clear(DisplayConfig* config);
-void Display_SetBrightness(uint8_t brightness); // Для поддержки ШИМ
+#define DISPLAY_CHECK_DIGIT(digit)                   \
+    do                                               \
+    {                                                \
+        if ((digit) >= current_config->digits_count) \
+            return DISPLAY_ERROR_INVALID_DIGIT;      \
+    } while (0)
 
+// ============== Функции для работы со временем ==============
+void Display_Tick(void);
+DisplayError Display_DelayMs(uint32_t ms);
+void Display_SetTimeCallback(uint32_t (*time_callback)(void));
+uint32_t Display_GetInternalTime(void);
+void Display_ResetInternalTime(void);
 
-// Методы для создания конфигураций
-DisplayConfig* Display_CreateConfig(uint8_t digits_count, DisplayType type, 
-                                    SegmentCallback seg_cb, DigitCallback dig_cb);
-                                    
-void Display_DestroyConfig(DisplayConfig* config);
+// ============== Основные API функции ==============
+DisplayError Display_Init(DisplayConfig *config);
+DisplayError Display_Update(void);
+DisplayError Display_SetNumber(int32_t number);
+DisplayError Display_SetFloat(float number, uint8_t decimal_places);
+DisplayError Display_SetCharacters(const SegmentChar *characters);
+DisplayError Display_SetCharacter(uint8_t digit, SegmentChar character);
+DisplayError Display_SetDot(uint8_t digit, DotState state);
+DisplayError Display_Clear(void);
+DisplayError Display_SetBrightness(BrightnessLevel brightness);
 
+// ============== Функции конфигурации ==============
+DisplayError Display_CreateConfig(DisplayConfig *config,
+                                  uint8_t digits_count,
+                                  DisplayType type,
+                                  SegmentCallback seg_cb,
+                                  DigitCallback dig_cb,
+                                  BrightnessCallback bright_cb);
 
-// Константы для символов
-#define CHAR_EMPTY     0xFF
+// ============== Функции бегущей строки ==============
+DisplayError Scroll_Init(ScrollingText *scroll,
+                         const SegmentChar *text,
+                         uint16_t length,
+                         uint8_t display_len,
+                         ScrollDirection direction,
+                         uint16_t delay_ms,
+                         bool loop);
+DisplayError Scroll_Update(ScrollingText *scroll);
+DisplayError Scroll_Start(ScrollingText *scroll);
+DisplayError Scroll_Stop(ScrollingText *scroll);
+DisplayError Scroll_Reset(ScrollingText *scroll);
+bool Scroll_IsFinished(const ScrollingText *scroll);
 
-#define CHAR_A 10
-#define CHAR_B 11
-#define CHAR_C 12
-#define CHAR_D 13
-#define CHAR_E 14
-#define CHAR_F 15
-#define CHAR_G 16
-#define CHAR_H 17
-#define CHAR_I 18
-#define CHAR_J 19
-#define CHAR_L 20 // Было 21
-#define CHAR_N 21 // Было 23
-#define CHAR_O 22 // Было 24
-#define CHAR_P 23 // Было 25
-#define CHAR_Q 24 // Было 26
-#define CHAR_R 25 // Было 27
-#define CHAR_S 26 // Было 28
-#define CHAR_T 27 // Было 29
-#define CHAR_U 28 // Было 30
-#define CHAR_Y 29 // Было 34
-#define CHAR_Z 30 // Было 35
+// ============== Вспомогательные функции ==============
+DisplayError String_ToSegmentCodes(const char *str,
+                                   SegmentChar *buffer,
+                                   uint16_t buffer_size,
+                                   uint16_t *converted_length);
 
-#endif
+#endif // SEGMENT_LCD_DRIVER_H

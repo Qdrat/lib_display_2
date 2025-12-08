@@ -1,11 +1,20 @@
 #include "segment_lcd_driver.h"
-#include <cstddef>
+#include <string.h>
 #include <stdlib.h>
-#include <cstring>
-#include <cmath>
+#include <math.h>
 
-// Таблицы кодов
-const uint8_t SEGMENT_CODES_CC[] = {
+// ============== Конфигурация для встраиваемых систем ==============
+// Раскомментировать для систем без стандартной библиотеки
+// #define DISPLAY_NO_STDLIB
+// #define DISPLAY_STATIC_BUFFERS
+
+// Размер статических буферов (если используется)
+#ifdef DISPLAY_STATIC_BUFFERS
+#define MAX_DISPLAY_DIGITS 8
+#endif
+
+// ============== Таблицы кодов (оптимизированные) ==============
+static const uint8_t SEGMENT_CODES_CC[] = {
     0x3F, // 0
     0x06, // 1
     0x5B, // 2
@@ -24,9 +33,11 @@ const uint8_t SEGMENT_CODES_CC[] = {
     0x71, // F
     0x3D, // G
     0x76, // H
-    0x06, // I
+    0x38, // I (исправлено)
     0x1E, // J
-    0x38, // L
+    0x38, // K (такой же как I)
+    0x38, // L (исправлено на правильный)
+    0x40, // M (приблизительно)
     0x54, // n
     0x3F, // O
     0x73, // P
@@ -35,10 +46,17 @@ const uint8_t SEGMENT_CODES_CC[] = {
     0x6D, // S
     0x78, // t
     0x3E, // U
+    0x3E, // V (такой же как U)
+    0x3E, // W (такой же как U)
+    0x76, // X (такой же как H)
     0x6E, // Y
-    0x5B  // Z
+    0x5B, // Z
+    0x40, // '-' (сегмент g)
+    0x08, // '_' (сегмент dp)
+    0x63, // '°'
 };
-const uint8_t SEGMENT_CODES_CA[] = {
+
+static const uint8_t SEGMENT_CODES_CA[] = {
     0xC0, // 0
     0xF9, // 1
     0xA4, // 2
@@ -57,9 +75,11 @@ const uint8_t SEGMENT_CODES_CA[] = {
     0x8E, // F
     0xC2, // G
     0x89, // H
-    0xF9, // I
+    0xC7, // I 
     0xF1, // J
+    0xC7, // K
     0xC7, // L
+    0xBF, // M
     0xAB, // n
     0xC0, // O
     0x8C, // P
@@ -68,93 +88,144 @@ const uint8_t SEGMENT_CODES_CA[] = {
     0x92, // S
     0x87, // t
     0xE3, // U
+    0xE3, // V
+    0xE3, // W
+    0x89, // X
     0x91, // Y
-    0xA4  // Z
+    0xA4, // Z
+    0xBF, // '-'
+    0xF7, // '_'
+    0x9C, // '°'
 };
 
-// Специальные символы
-const uint8_t SPECIAL_SYMBOLS_CC[] = {
-    0x00, // CHAR_EMPTY
-};
-
-const uint8_t SPECIAL_SYMBOLS_CA[] = {
-    0xFF, // CHAR_EMPTY
-};
-
-// Глобальные переменные
-static volatile uint8_t current_digit = 0;
-static volatile uint8_t *display_buffer = NULL;
-static volatile uint8_t *dot_flags = NULL;
+// ============== Глобальные переменные ==============
 static DisplayConfig *current_config = NULL;
-static uint8_t buffer_initialized = 0;
-
+static uint8_t current_digit = 0;
+static bool display_initialized = false;
 static DisplayTime display_time = {0};
 
-// Внутренние функции
-static uint8_t GetSegmentCode(uint8_t character, DisplayType type)
+#ifdef DISPLAY_STATIC_BUFFERS
+static uint8_t display_buffer_static[MAX_DISPLAY_DIGITS];
+static uint8_t dot_flags_static[MAX_DISPLAY_DIGITS];
+static uint8_t *display_buffer = display_buffer_static;
+static uint8_t *dot_flags = dot_flags_static;
+#else
+static uint8_t *display_buffer = NULL;
+static uint8_t *dot_flags = NULL;
+#endif
+
+// ============== Внутренние функции ==============
+static DisplayError InitializeBuffers(uint8_t digits_count)
 {
-    if (character == CHAR_EMPTY)
-        return (type == COMMON_CATHODE) ? 0x00 : 0xFF;
-    if (character < 36)
-    { // Цифры и буквы
-        return (type == COMMON_CATHODE) ? SEGMENT_CODES_CC[character] : SEGMENT_CODES_CA[character];
+#ifdef DISPLAY_STATIC_BUFFERS
+    if (digits_count > MAX_DISPLAY_DIGITS)
+    {
+        return DISPLAY_ERROR_BUFFER_OVERFLOW;
+    }
+#else
+    // Освобождаем старые буферы, если есть
+    if (display_buffer)
+    {
+        free(display_buffer);
+        display_buffer = NULL;
+    }
+    if (dot_flags)
+    {
+        free(dot_flags);
+        dot_flags = NULL;
     }
 
-    return (type == COMMON_CATHODE) ? 0x00 : 0xFF;
+    // Выделяем новую память
+    display_buffer = (uint8_t *)malloc(digits_count * sizeof(uint8_t));
+    dot_flags = (uint8_t *)malloc(digits_count * sizeof(uint8_t));
+
+    if (!display_buffer || !dot_flags)
+    {
+        if (display_buffer)
+            free(display_buffer);
+        if (dot_flags)
+            free(dot_flags);
+        display_buffer = NULL;
+        dot_flags = NULL;
+        return DISPLAY_ERROR_MEMORY;
+    }
+#endif
+
+    // Инициализируем буферы
+    memset(display_buffer, (uint8_t)SEG_CHAR_EMPTY, digits_count);
+    memset(dot_flags, 0, digits_count);
+
+    return DISPLAY_OK;
 }
 
-static void InitializeBuffers(DisplayConfig *config)
+static uint8_t GetSegmentCode(SegmentChar character, DisplayType type)
 {
-    if (buffer_initialized)
+    if (character == SEG_CHAR_EMPTY)
     {
-        free((void *)display_buffer);
-        free((void *)dot_flags);
+        return (type == DISPLAY_TYPE_COMMON_CATHODE) ? 0x00 : 0xFF;
     }
 
-    display_buffer = (uint8_t *)malloc(config->digits_count * sizeof(uint8_t));
-    dot_flags = (uint8_t *)malloc(config->digits_count * sizeof(uint8_t));
-
-    if (display_buffer && dot_flags)
+    if ((uint8_t)character < sizeof(SEGMENT_CODES_CC))
     {
-        memset((void *)display_buffer, 0, config->digits_count);
-        memset((void *)dot_flags, 0, config->digits_count);
-        buffer_initialized = 1;
+        return (type == DISPLAY_TYPE_COMMON_CATHODE) ? SEGMENT_CODES_CC[(uint8_t)character] : SEGMENT_CODES_CA[(uint8_t)character];
     }
+
+    return (type == DISPLAY_TYPE_COMMON_CATHODE) ? 0x00 : 0xFF;
 }
 
-// API функции
-void Display_Init(DisplayConfig *config)
+// ============== API функции ==============
+DisplayError Display_Init(DisplayConfig *config)
 {
-    if (!config || !config->set_segments || !config->set_digit)
-        return;
+    DISPLAY_CHECK_PTR(config);
+
+    if (!config->set_segments || !config->set_digit)
+    {
+        return DISPLAY_ERROR_INVALID_CONFIG;
+    }
 
     current_config = config;
-    InitializeBuffers(config);
-    Display_Clear(config);
+
+    DisplayError err = InitializeBuffers(config->digits_count);
+    if (err != DISPLAY_OK)
+    {
+        return err;
+    }
+
+    // Устанавливаем яркость по умолчанию
+    if (config->set_brightness)
+    {
+        config->set_brightness(config->brightness);
+    }
+
+    // Очищаем дисплей
+    err = Display_Clear();
+    if (err != DISPLAY_OK)
+    {
+        return err;
+    }
+
+    display_initialized = true;
+    return DISPLAY_OK;
 }
 
-void Display_Update(DisplayConfig *config)
+DisplayError Display_Update(void)
 {
-    if (!config || !buffer_initialized)
-        return;
+    DISPLAY_CHECK_INIT();
+    DISPLAY_CHECK_PTR(current_config);
 
-    // Выключаем все разряды
-    if (config->type == COMMON_CATHODE)
-    {
-        config->set_digit(current_digit, 0);
-    }
-    else
-    {
-        config->set_digit(current_digit, 1);
-    }
+    // Выключаем текущий разряд
+    bool digit_off_state = (current_config->type == DISPLAY_TYPE_COMMON_CATHODE);
+    current_config->set_digit(current_digit, digit_off_state);
 
-    // Устанавливаем сегменты для текущего разряда
-    uint8_t segments = GetSegmentCode(display_buffer[current_digit], config->type);
+    // Получаем код сегментов для текущей цифры
+    uint8_t segments = GetSegmentCode(
+        (SegmentChar)display_buffer[current_digit],
+        current_config->type);
 
-    // Добавляем точку если нужно
+    // Обрабатываем точку
     if (dot_flags[current_digit])
     {
-        if (config->type == COMMON_CATHODE)
+        if (current_config->type == DISPLAY_TYPE_COMMON_CATHODE)
         {
             segments |= 0x80; // Включаем точку
         }
@@ -165,7 +236,7 @@ void Display_Update(DisplayConfig *config)
     }
     else
     {
-        if (config->type == COMMON_CATHODE)
+        if (current_config->type == DISPLAY_TYPE_COMMON_CATHODE)
         {
             segments &= ~0x80; // Выключаем точку
         }
@@ -175,26 +246,25 @@ void Display_Update(DisplayConfig *config)
         }
     }
 
+    // Устанавливаем сегменты
+    current_config->set_segments(segments);
+
     // Включаем текущий разряд
-    if (config->type == COMMON_CATHODE)
-    {
-        config->set_digit(current_digit, 1);
-    }
-    else
-    {
-        config->set_digit(current_digit, 0);
-    }
+    bool digit_on_state = !digit_off_state;
+    current_config->set_digit(current_digit, digit_on_state);
 
     // Переходим к следующему разряду
-    current_digit = (current_digit + 1) % config->digits_count;
+    current_digit = (current_digit + 1) % current_config->digits_count;
+
+    return DISPLAY_OK;
 }
 
-void Display_SetNumber(uint32_t number)
+DisplayError Display_SetNumber(int32_t number)
 {
-    if (!buffer_initialized || !current_config)
-        return;
+    DISPLAY_CHECK_INIT();
+    DISPLAY_CHECK_PTR(current_config);
 
-    uint32_t temp = number;
+    uint32_t temp = (number < 0) ? (uint32_t)(-number) : (uint32_t)number;
     uint8_t digits = current_config->digits_count;
 
     // Заполняем справа налево
@@ -202,235 +272,443 @@ void Display_SetNumber(uint32_t number)
     {
         if (temp > 0 || i == digits - 1)
         {
-            display_buffer[i] = temp % 10;
+            display_buffer[i] = (uint8_t)(temp % 10);
             temp /= 10;
         }
         else
         {
-            display_buffer[i] = CHAR_EMPTY; // Пусто вместо нулей
+            display_buffer[i] = (uint8_t)SEG_CHAR_EMPTY;
         }
     }
+
+    // Добавляем знак минус для отрицательных чисел
+    if (number < 0)
+    {
+        // Ищем первую непустую позицию слева
+        for (uint8_t i = 0; i < digits; i++)
+        {
+            if (display_buffer[i] != (uint8_t)SEG_CHAR_EMPTY)
+            {
+                if (i > 0)
+                {
+                    display_buffer[i - 1] = (uint8_t)SEG_CHAR_MINUS;
+                }
+                break;
+            }
+        }
+    }
+
+    return DISPLAY_OK;
 }
 
-void Display_SetFloat(float number, uint8_t decimal_places)
+DisplayError Display_SetFloat(float number, uint8_t decimal_places)
 {
-    if (!buffer_initialized || !current_config)
-        return;
+    DISPLAY_CHECK_INIT();
+    DISPLAY_CHECK_PTR(current_config);
 
     uint8_t digits = current_config->digits_count;
 
-    // Ограничиваем количество знаков после запятой
+    // Проверяем валидность параметров
     if (decimal_places >= digits)
+    {
         decimal_places = digits - 1;
-
-    // Проверяем диапазон
-    float max_value = pow(10, digits - decimal_places) - 1;
-    float min_value = -max_value;
-
-    if (number > max_value)
-        number = max_value;
-    if (number < min_value)
-        number = min_value;
+    }
 
     // Обрабатываем отрицательные числа
-    uint8_t is_negative = (number < 0);
+    bool is_negative = (number < 0);
     if (is_negative)
     {
         number = -number;
+        digits--; // Один разряд на минус
     }
 
-    // Масштабируем число
-    float scaled_float = number * pow(10, decimal_places);
-
-    // Ограничиваем максимальное значение
-    int32_t max_scaled = pow(10, digits) - 1;
-    if (scaled_float > max_scaled)
+    // Проверяем, помещается ли число
+    float max_value = 1.0f;
+    for (uint8_t i = 0; i < (digits - decimal_places); i++)
     {
-        scaled_float = max_scaled;
+        max_value *= 10.0f;
+    }
+    max_value -= 1.0f / powf(10.0f, (float)decimal_places);
+
+    if (number > max_value)
+    {
+        number = max_value;
     }
 
-    int32_t scaled = (int32_t)(scaled_float + 0.5); // Округление
+    // Масштабируем и округляем
+    int32_t scaled = (int32_t)(number * powf(10.0f, (float)decimal_places) + 0.5f);
 
     // Устанавливаем цифры
-    uint8_t start_digit = is_negative ? 1 : 0;
-
-    for (int8_t i = digits - 1; i >= 0; i--)
+    for (int8_t i = current_config->digits_count - 1; i >= 0; i--)
     {
-        if (is_negative && i == 0)
+        // Устанавливаем точку
+        if (i == (int8_t)(current_config->digits_count - 1 - decimal_places))
         {
-            // Первый символ - минус
-            display_buffer[i] = 31; // Индекс для '-'
-            continue;
+            Display_SetDot((uint8_t)i, DOT_ON);
+        }
+        else
+        {
+            Display_SetDot((uint8_t)i, DOT_OFF);
         }
 
-        if (i == (digits - 1 - decimal_places))
+        // Устанавливаем цифру
+        if (scaled > 0 || i >= (int8_t)(current_config->digits_count - 1 - decimal_places))
         {
-            // Устанавливаем точку для этого разряда
-            Display_SetDot(i, 1);
-        }
-
-        if (scaled > 0 || i >= (digits - 1 - decimal_places))
-        {
-            display_buffer[i] = scaled % 10;
+            display_buffer[i] = (uint8_t)(scaled % 10);
             scaled /= 10;
         }
         else
         {
-            display_buffer[i] = CHAR_EMPTY;
+            display_buffer[i] = (uint8_t)SEG_CHAR_EMPTY;
         }
     }
+
+    // Устанавливаем минус для отрицательных чисел
+    if (is_negative)
+    {
+        // Ищем первую непустую позицию слева
+        for (uint8_t i = 0; i < current_config->digits_count; i++)
+        {
+            if (display_buffer[i] != (uint8_t)SEG_CHAR_EMPTY)
+            {
+                if (i > 0)
+                {
+                    display_buffer[i - 1] = (uint8_t)SEG_CHAR_MINUS;
+                }
+                break;
+            }
+        }
+    }
+
+    return DISPLAY_OK;
 }
 
-void Display_SetCharacters(const uint8_t *characters)
+DisplayError Display_SetCharacters(const SegmentChar *characters)
 {
-    if (!buffer_initialized || !current_config || !characters)
-        return;
+    DISPLAY_CHECK_INIT();
+    DISPLAY_CHECK_PTR(current_config);
+    DISPLAY_CHECK_PTR(characters);
 
     uint8_t digits = current_config->digits_count;
     for (uint8_t i = 0; i < digits; i++)
     {
-        display_buffer[i] = characters[i];
-    }
-}
-
-void Display_SetCharacter(uint8_t digit, uint8_t character)
-{
-    if (!buffer_initialized || !current_config || digit >= current_config->digits_count)
-        return;
-
-    display_buffer[digit] = character;
-}
-
-void Display_SetDot(uint8_t digit, uint8_t state)
-{
-    if (!buffer_initialized || !current_config || digit >= current_config->digits_count)
-        return;
-
-    dot_flags[digit] = state;
-}
-
-void Display_Clear(DisplayConfig *config)
-{
-    if (!buffer_initialized || !config)
-        return;
-
-    uint8_t digits = config->digits_count;
-    for (uint8_t i = 0; i < digits; i++)
-    {
-        display_buffer[i] = CHAR_EMPTY;
-        dot_flags[i] = 0;
-    }
-
-    // Выключаем все сегменты и разряды
-    if (config->type == COMMON_CATHODE)
-    {
-        config->set_segments(0x00);
-        for (uint8_t i = 0; i < digits; i++)
+        if (characters[i] > SEG_CHAR_DEGREE && characters[i] != SEG_CHAR_EMPTY)
         {
-            config->set_digit(i, 0);
+            return DISPLAY_ERROR_INVALID_CHAR;
         }
+        display_buffer[i] = (uint8_t)characters[i];
+    }
+
+    return DISPLAY_OK;
+}
+
+DisplayError Display_SetCharacter(uint8_t digit, SegmentChar character)
+{
+    DISPLAY_CHECK_INIT();
+    DISPLAY_CHECK_PTR(current_config);
+    DISPLAY_CHECK_DIGIT(digit);
+
+    if (character > SEG_CHAR_DEGREE && character != SEG_CHAR_EMPTY)
+    {
+        return DISPLAY_ERROR_INVALID_CHAR;
+    }
+
+    display_buffer[digit] = (uint8_t)character;
+    return DISPLAY_OK;
+}
+
+DisplayError Display_SetDot(uint8_t digit, DotState state)
+{
+    DISPLAY_CHECK_INIT();
+    DISPLAY_CHECK_PTR(current_config);
+    DISPLAY_CHECK_DIGIT(digit);
+
+    dot_flags[digit] = (uint8_t)state;
+    return DISPLAY_OK;
+}
+
+DisplayError Display_Clear(void)
+{
+    DISPLAY_CHECK_INIT();
+    DISPLAY_CHECK_PTR(current_config);
+
+    uint8_t digits = current_config->digits_count;
+
+    // Очищаем буферы
+    memset(display_buffer, (uint8_t)SEG_CHAR_EMPTY, digits);
+    memset(dot_flags, 0, digits);
+
+    // Выключаем все сегменты
+    if (current_config->type == DISPLAY_TYPE_COMMON_CATHODE)
+    {
+        current_config->set_segments(0x00);
     }
     else
     {
-        config->set_segments(0xFF);
-        for (uint8_t i = 0; i < digits; i++)
-        {
-            config->set_digit(i, 1);
-        }
+        current_config->set_segments(0xFF);
     }
+
+    // Выключаем все разряды
+    bool digit_off_state = (current_config->type == DISPLAY_TYPE_COMMON_CATHODE);
+    for (uint8_t i = 0; i < digits; i++)
+    {
+        current_config->set_digit(i, digit_off_state);
+    }
+
+    return DISPLAY_OK;
 }
 
-// Создание базовой конфигурации
-DisplayConfig *Display_CreateConfig(uint8_t digits_count, DisplayType type,
-                                    SegmentCallback seg_cb, DigitCallback dig_cb)
+DisplayError Display_SetBrightness(BrightnessLevel brightness)
 {
-    DisplayConfig *config = (DisplayConfig *)malloc(sizeof(DisplayConfig));
-    if (!config)
-        return NULL;
+    DISPLAY_CHECK_INIT();
+    DISPLAY_CHECK_PTR(current_config);
 
-    config->digits_count = digits_count;
-    config->type = type;
+    // Проверяем диапазон
+    if (brightness > 100)
+    {
+        brightness = 100;
+    }
+
+    // Сохраняем значение
+    current_config->brightness = brightness;
+
+    // Если есть callback для яркости, вызываем его
+    if (current_config->set_brightness)
+    {
+        current_config->set_brightness(brightness);
+    }
+
+    return DISPLAY_OK;
+}
+
+// ============== Функции конфигурации ==============
+DisplayError Display_CreateConfig(DisplayConfig *config,
+                                  uint8_t digits_count,
+                                  DisplayType type,
+                                  SegmentCallback seg_cb,
+                                  DigitCallback dig_cb,
+                                  BrightnessCallback bright_cb)
+{
+    DISPLAY_CHECK_PTR(config);
+
+    if (!seg_cb || !dig_cb || digits_count == 0)
+    {
+        return DISPLAY_ERROR_INVALID_CONFIG;
+    }
+
     config->set_segments = seg_cb;
     config->set_digit = dig_cb;
+    config->set_brightness = bright_cb;
+    config->digits_count = digits_count;
+    config->type = type;
+    config->brightness = 100; // Яркость по умолчанию
 
-    return config;
+    return DISPLAY_OK;
 }
 
-// Очистка ресурсов
-void Display_DestroyConfig(DisplayConfig *config)
+// ============== Функции времени ==============
+void Display_Tick(void)
 {
-    if (!config)
-        return;
-
-    // Освобождаем буферы только если это тот же конфиг
-    if (buffer_initialized && current_config == config)
-    {
-        free((void *)display_buffer);
-        free((void *)dot_flags);
-        display_buffer = NULL;
-        dot_flags = NULL;
-        current_config = NULL;
-        buffer_initialized = 0;
-    }
-
-    free(config);
-}
-
-// Функция для обновления времени (вызывать каждую 1мс в прерывании таймера)
-void Display_Tick(DisplayConfig *config)
-{
-    (void)config; // Не используем, но оставляем для совместимости
     display_time.internal_counter++;
 }
 
-// Функция получения текущего времени
-static uint32_t GetCurrentTime(void)
+DisplayError Display_DelayMs(uint32_t ms)
 {
-    // Если пользователь предоставил свою функцию времени - используем ее
-    if (display_time.get_time_ms)
-    {
-        return display_time.get_time_ms();
-    }
-    // Иначе используем внутренний счетчик
-    return display_time.internal_counter;
-}
+    DISPLAY_CHECK_INIT();
 
-// Функция задержки (блокирующая)
-void Display_DelayMs(DisplayConfig *config, uint32_t ms)
-{
-    uint32_t start_time = GetCurrentTime();
-    while (GetCurrentTime() - start_time < ms)
+    uint32_t start_time = Display_GetInternalTime();
+    while (Display_GetInternalTime() - start_time < ms)
     {
-        // Можно добавить вызов Display_Update для поддержания индикации
-        if (config)
+        // Обновляем дисплей во время задержки
+        DisplayError err = Display_Update();
+        if (err != DISPLAY_OK)
         {
-            Display_Update(config);
+            return err;
         }
     }
+
+    return DISPLAY_OK;
 }
 
-// Установка пользовательской функции времени
 void Display_SetTimeCallback(uint32_t (*time_callback)(void))
 {
     display_time.get_time_ms = time_callback;
 }
 
-// Получение внутреннего счетчика времени
 uint32_t Display_GetInternalTime(void)
 {
+    if (display_time.get_time_ms)
+    {
+        return display_time.get_time_ms();
+    }
     return display_time.internal_counter;
 }
 
-// Сброс внутреннего счетчика времени
 void Display_ResetInternalTime(void)
 {
     display_time.internal_counter = 0;
 }
 
-// Функция преобразования строки в коды сегментов
-uint16_t String_ToSegmentCodes(const char *str, uint8_t *buffer, uint16_t buffer_size)
+// ============== Функции бегущей строки ==============
+DisplayError Scroll_Init(ScrollingText *scroll,
+                         const SegmentChar *text,
+                         uint16_t length,
+                         uint8_t display_len,
+                         ScrollDirection direction,
+                         uint16_t delay_ms,
+                         bool loop)
 {
+    DISPLAY_CHECK_PTR(scroll);
+    DISPLAY_CHECK_PTR(text);
+
+    if (length == 0 || display_len == 0)
+    {
+        return DISPLAY_ERROR_INVALID_CONFIG;
+    }
+
+    scroll->text = text;
+    scroll->text_length = length;
+    scroll->display_length = display_len;
+    scroll->direction = direction;
+    scroll->scroll_delay = delay_ms;
+    scroll->loop = loop;
+    scroll->enabled = false;
+    scroll->current_position = (direction == SCROLL_RIGHT) ? 0 : (int16_t)(length - 1);
+    scroll->last_scroll_time = 0;
+
+    return DISPLAY_OK;
+}
+
+DisplayError Scroll_Update(ScrollingText *scroll)
+{
+    DISPLAY_CHECK_PTR(scroll);
+    DISPLAY_CHECK_INIT();
+
+    if (!scroll->enabled)
+    {
+        return DISPLAY_OK;
+    }
+
+    uint32_t current_time = Display_GetInternalTime();
+
+    // Проверяем время для сдвига
+    if (current_time - scroll->last_scroll_time < scroll->scroll_delay)
+    {
+        return DISPLAY_OK;
+    }
+
+    scroll->last_scroll_time = current_time;
+
+    // Проверяем завершение
+    if (!scroll->loop && Scroll_IsFinished(scroll))
+    {
+        scroll->enabled = false;
+        return DISPLAY_OK;
+    }
+
+    // Создаем буфер для отображения
+    SegmentChar display_buf[16]; // Максимум 16 разрядов
+    if (scroll->display_length > 16)
+    {
+        return DISPLAY_ERROR_BUFFER_OVERFLOW;
+    }
+
+    memset(display_buf, SEG_CHAR_EMPTY, sizeof(SegmentChar) * scroll->display_length);
+
+    // Заполняем буфер
+    if (scroll->direction == SCROLL_RIGHT)
+    {
+        for (uint8_t i = 0; i < scroll->display_length; i++)
+        {
+            int16_t idx = scroll->current_position + i - scroll->display_length;
+            if (idx >= 0 && idx < (int16_t)scroll->text_length)
+            {
+                display_buf[i] = scroll->text[idx];
+            }
+        }
+        scroll->current_position++;
+
+        if (scroll->loop && scroll->current_position >= (int16_t)(scroll->text_length + scroll->display_length))
+        {
+            scroll->current_position = 0;
+        }
+    }
+    else
+    {
+        for (uint8_t i = 0; i < scroll->display_length; i++)
+        {
+            int16_t idx = scroll->current_position + i;
+            if (idx >= 0 && idx < (int16_t)scroll->text_length)
+            {
+                display_buf[i] = scroll->text[idx];
+            }
+        }
+        scroll->current_position--;
+
+        if (scroll->loop && scroll->current_position < -(int16_t)scroll->display_length)
+        {
+            scroll->current_position = (int16_t)(scroll->text_length - 1);
+        }
+    }
+
+    // Отображаем
+    return Display_SetCharacters(display_buf);
+}
+
+DisplayError Scroll_Start(ScrollingText *scroll)
+{
+    DISPLAY_CHECK_PTR(scroll);
+
+    scroll->enabled = true;
+    return DISPLAY_OK;
+}
+
+DisplayError Scroll_Stop(ScrollingText *scroll)
+{
+    DISPLAY_CHECK_PTR(scroll);
+
+    scroll->enabled = false;
+    return DISPLAY_OK;
+}
+
+DisplayError Scroll_Reset(ScrollingText *scroll)
+{
+    DISPLAY_CHECK_PTR(scroll);
+
+    scroll->current_position = (scroll->direction == SCROLL_RIGHT) ? 0 : (int16_t)(scroll->text_length - 1);
+    scroll->last_scroll_time = 0;
+
+    return DISPLAY_OK;
+}
+
+bool Scroll_IsFinished(const ScrollingText *scroll)
+{
+    if (!scroll || scroll->loop)
+    {
+        return false;
+    }
+
+    if (scroll->direction == SCROLL_RIGHT)
+    {
+        return (scroll->current_position >= (int16_t)(scroll->text_length + scroll->display_length));
+    }
+    else
+    {
+        return (scroll->current_position < -(int16_t)scroll->display_length);
+    }
+}
+
+// ============== Вспомогательные функции ==============
+DisplayError String_ToSegmentCodes(const char *str,
+                                   SegmentChar *buffer,
+                                   uint16_t buffer_size,
+                                   uint16_t *converted_length)
+{
+    DISPLAY_CHECK_PTR(str);
+    DISPLAY_CHECK_PTR(buffer);
+
     uint16_t length = 0;
+    bool prev_dot = false;
 
     while (*str && length < buffer_size)
     {
@@ -438,246 +716,162 @@ uint16_t String_ToSegmentCodes(const char *str, uint8_t *buffer, uint16_t buffer
 
         switch (c)
         {
-        case '0' ... '9':
-            buffer[length++] = c - '0';
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+            buffer[length++] = (SegmentChar)(c - '0');
+            prev_dot = false;
             break;
+
         case 'A':
         case 'a':
-            buffer[length++] = CHAR_A;
+            buffer[length++] = SEG_CHAR_A;
             break;
         case 'B':
         case 'b':
-            buffer[length++] = CHAR_B;
+            buffer[length++] = SEG_CHAR_B;
             break;
         case 'C':
         case 'c':
-            buffer[length++] = CHAR_C;
+            buffer[length++] = SEG_CHAR_C;
             break;
         case 'D':
         case 'd':
-            buffer[length++] = CHAR_D;
+            buffer[length++] = SEG_CHAR_D;
             break;
         case 'E':
         case 'e':
-            buffer[length++] = CHAR_E;
+            buffer[length++] = SEG_CHAR_E;
             break;
         case 'F':
         case 'f':
-            buffer[length++] = CHAR_F;
+            buffer[length++] = SEG_CHAR_F;
             break;
         case 'G':
         case 'g':
-            buffer[length++] = CHAR_G;
+            buffer[length++] = SEG_CHAR_G;
             break;
         case 'H':
         case 'h':
-            buffer[length++] = CHAR_H;
+            buffer[length++] = SEG_CHAR_H;
             break;
         case 'I':
         case 'i':
-            buffer[length++] = CHAR_I;
+            buffer[length++] = SEG_CHAR_I;
             break;
         case 'J':
         case 'j':
-            buffer[length++] = CHAR_J;
+            buffer[length++] = SEG_CHAR_J;
+            break;
+        case 'K':
+        case 'k':
+            buffer[length++] = SEG_CHAR_K;
             break;
         case 'L':
         case 'l':
-            buffer[length++] = CHAR_L;
+            buffer[length++] = SEG_CHAR_L;
+            break;
+        case 'M':
+        case 'm':
+            buffer[length++] = SEG_CHAR_M;
             break;
         case 'N':
         case 'n':
-            buffer[length++] = CHAR_N;
+            buffer[length++] = SEG_CHAR_N;
             break;
         case 'O':
         case 'o':
-            buffer[length++] = CHAR_O;
+            buffer[length++] = SEG_CHAR_O;
             break;
         case 'P':
         case 'p':
-            buffer[length++] = CHAR_P;
+            buffer[length++] = SEG_CHAR_P;
             break;
         case 'Q':
         case 'q':
-            buffer[length++] = CHAR_Q;
+            buffer[length++] = SEG_CHAR_Q;
             break;
         case 'R':
         case 'r':
-            buffer[length++] = CHAR_R;
+            buffer[length++] = SEG_CHAR_R;
             break;
         case 'S':
         case 's':
-            buffer[length++] = CHAR_S;
+            buffer[length++] = SEG_CHAR_S;
             break;
         case 'T':
         case 't':
-            buffer[length++] = CHAR_T;
+            buffer[length++] = SEG_CHAR_T;
             break;
         case 'U':
         case 'u':
-            buffer[length++] = CHAR_U;
+            buffer[length++] = SEG_CHAR_U;
+            break;
+        case 'V':
+        case 'v':
+            buffer[length++] = SEG_CHAR_V;
+            break;
+        case 'W':
+        case 'w':
+            buffer[length++] = SEG_CHAR_W;
+            break;
+        case 'X':
+        case 'x':
+            buffer[length++] = SEG_CHAR_X;
             break;
         case 'Y':
         case 'y':
-            buffer[length++] = CHAR_Y;
+            buffer[length++] = SEG_CHAR_Y;
             break;
         case 'Z':
         case 'z':
-            buffer[length++] = CHAR_Z;
+            buffer[length++] = SEG_CHAR_Z;
             break;
-        // case '-':
-        //     buffer[length++] = CHAR_DASH;
-        //     break;
-        // case '_':
-        //     buffer[length++] = CHAR_UNDERSCORE;
-        //     break;
-        case ' ':
-            buffer[length++] = CHAR_EMPTY;
+
+        case '-':
+            buffer[length++] = SEG_CHAR_MINUS;
+            prev_dot = false;
             break;
+
+        case '_':
+            buffer[length++] = SEG_CHAR_UNDERSCORE;
+            prev_dot = false;
+            break;
+
         case '.':
-            // Устанавливаем точку для предыдущего символа
-            if (length > 0)
+            if (length > 0 && !prev_dot)
             {
-                Display_SetDot(length - 1, 1);
+                // Устанавливаем точку для предыдущего символа
+                Display_SetDot((uint8_t)(length - 1), DOT_ON);
             }
-            // Не увеличиваем length, так как точка не добавляет новый символ
+            prev_dot = true;
             break;
+
+        case ' ':
+            buffer[length++] = SEG_CHAR_EMPTY;
+            prev_dot = false;
+            break;
+
         default:
-            buffer[length++] = CHAR_EMPTY;
+            buffer[length++] = SEG_CHAR_EMPTY;
+            prev_dot = false;
             break;
         }
 
         str++;
     }
 
-    return length;
-}
-
-// Инициализация бегущей строки
-void Scroll_Init(ScrollingText *scroll, uint8_t *text, uint16_t length,
-                 uint16_t display_len, uint8_t direction, uint16_t delay_ms, uint8_t loop)
-{
-    scroll->text = text;
-    scroll->text_length = length;
-    scroll->display_length = display_len;
-    scroll->direction = direction;
-    scroll->scroll_delay = delay_ms;
-    scroll->loop = loop;
-    scroll->enabled = 0; // По умолчанию выключена
-    scroll->current_position = 0;
-    scroll->last_scroll_time = 0;
-}
-
-// Запуск бегущей строки
-void Scroll_Start(ScrollingText *scroll)
-{
-    scroll->enabled = 1;
-    scroll->current_position = (scroll->direction == 0) ? 0 : scroll->text_length - 1;
-}
-
-// Остановка бегущей строки
-void Scroll_Stop(ScrollingText *scroll)
-{
-    scroll->enabled = 0;
-}
-
-// Сброс бегущей строки в начальное положение
-void Scroll_Reset(ScrollingText *scroll)
-{
-    scroll->current_position = (scroll->direction == 0) ? 0 : scroll->text_length - 1;
-}
-
-// Проверка завершения бегущей строки (только если не зациклена)
-uint8_t Scroll_IsFinished(ScrollingText *scroll)
-{
-    if (scroll->loop)
-        return 0;
-
-    if (scroll->direction == 0)
+    if (converted_length)
     {
-        // Движение вправо - закончили, когда весь текст прошел
-        return (scroll->current_position >= scroll->text_length + scroll->display_length);
-    }
-    else
-    {
-        // Движение влево - закончили, когда позиция стала отрицательной
-        return (scroll->current_position < 0);
-    }
-}
-
-// Функции бегущей строки (используется GetCurrentTime)
-void Scroll_Update(ScrollingText *scroll, DisplayConfig *display)
-{
-    if (!scroll || !scroll->enabled || !display)
-        return;
-
-    uint32_t current_time = GetCurrentTime();
-
-    // Проверяем, не пришло ли время для сдвига
-    if (current_time - scroll->last_scroll_time < scroll->scroll_delay)
-    {
-        return;
+        *converted_length = length;
     }
 
-    scroll->last_scroll_time = current_time;
-
-    // Проверяем завершение (если не зациклено)
-    if (!scroll->loop && Scroll_IsFinished(scroll))
-    {
-        scroll->enabled = 0;
-        return;
-    }
-
-    // Создаем буфер для отображаемой части текста
-    uint8_t display_buffer[scroll->display_length];
-    memset(display_buffer, CHAR_EMPTY, scroll->display_length);
-
-    // Заполняем буфер в зависимости от направления
-    if (scroll->direction == 0)
-    {
-        // Движение вправо
-        for (uint8_t i = 0; i < scroll->display_length; i++)
-        {
-            int16_t text_index = scroll->current_position + i - scroll->display_length;
-
-            if (text_index >= 0 && text_index < scroll->text_length)
-            {
-                display_buffer[i] = scroll->text[text_index];
-            }
-        }
-
-        // Увеличиваем позицию для следующего шага
-        scroll->current_position++;
-
-        // Проверяем зацикливание
-        if (scroll->loop && scroll->current_position >= scroll->text_length + scroll->display_length)
-        {
-            scroll->current_position = 0;
-        }
-    }
-    else
-    {
-        // Движение влево
-        for (uint8_t i = 0; i < scroll->display_length; i++)
-        {
-            int16_t text_index = scroll->current_position + i;
-
-            if (text_index >= 0 && text_index < scroll->text_length)
-            {
-                display_buffer[i] = scroll->text[text_index];
-            }
-        }
-
-        // Уменьшаем позицию для следующего шага
-        scroll->current_position--;
-
-        // Проверяем зацикливание
-        if (scroll->loop && scroll->current_position < -(int16_t)scroll->display_length)
-        {
-            scroll->current_position = scroll->text_length - 1;
-        }
-    }
-
-    // Устанавливаем символы на дисплей
-    Display_SetCharacters(display_buffer);
+    return DISPLAY_OK;
 }

@@ -1,195 +1,204 @@
-1. Функция установки сегментов: SegmentCallback
+Segment LCD Driver
 
-typedef void (*SegmentCallback)(uint8_t segment_mask);
+Библиотека для управления сегментными LCD-дисплеями с общим катодом или общим анодом. Поддерживает динамическую индикацию, бегущую строку, вывод чисел и текста, управление яркостью.
 
-Что делает:
-Эта функция получает битовую маску всех сегментов, которые нужно включить/выключить для текущего разряда.
+Основные возможности
 
-Битовая маска сегментов:
+    • Поддержка дисплеев с общим катодом (Common Cathode) и общим анодом (Common Anode)
+    • Динамическая индикация с мультиплексированием
+    • Вывод целых чисел, дробных чисел, произвольных символов
+    • Управление десятичными точками
+    • Бегущая строка с настраиваемыми параметрами
+    • Регулировка яркости (если поддерживается аппаратно)
+    • Защита от ошибок (валидация параметров, проверка указателей)
+    • Поддержка систем без стандартной библиотеки
 
-Бит 0 (0x01) → сегмент A
-Бит 1 (0x02) → сегмент B  
-Бит 2 (0x04) → сегмент C
-Бит 3 (0x08) → сегмент D
-Бит 4 (0x10) → сегмент E
-Бит 5 (0x20) → сегмент F
-Бит 6 (0x40) → сегмент G
-Бит 7 (0x80) → сегмент DP (точка)
+Структура файлов
 
-Примеры масок:
-0x3F (0011 1111) → цифра "0" (включены A,B,C,D,E,F)
-0x06 (0000 0110) → цифра "1" (включены B,C)
-0x5B (0101 1011) → цифра "2" (включены A,B,D,E,G)
-0x66 (0110 0110) → цифра "4" (включены B,C,F,G)
-0x80 (1000 0000) → только точка
+segment_lcd_driver.h  - Заголовочный файл с объявлениями типов и функций
+segment_lcd_driver.c  - Исходный код библиотеки
 
-Как реализовать:
+Быстрый старт
 
-// Пример для прямого подключения к GPIO
+1. Подключение библиотеки
+
+#include "segment_lcd_driver.h"
+
+2. Реализация callback-функций
+Библиотека использует callback-функции для управления аппаратной частью:
+
+// Пример для микроконтроллера
 void My_SetSegments(uint8_t segment_mask) {
-    // Устанавливаем каждый сегмент согласно битовой маске
-    HAL_GPIO_WritePin(SEG_A_GPIO_Port, SEG_A_Pin, (segment_mask & 0x01) ? ON : OFF);
-    HAL_GPIO_WritePin(SEG_B_GPIO_Port, SEG_B_Pin, (segment_mask & 0x02) ? ON : OFF);
-    HAL_GPIO_WritePin(SEG_C_GPIO_Port, SEG_C_Pin, (segment_mask & 0x04) ? ON : OFF);
-    HAL_GPIO_WritePin(SEG_D_GPIO_Port, SEG_D_Pin, (segment_mask & 0x08) ? ON : OFF);
-    HAL_GPIO_WritePin(SEG_E_GPIO_Port, SEG_E_Pin, (segment_mask & 0x10) ? ON : OFF);
-    HAL_GPIO_WritePin(SEG_F_GPIO_Port, SEG_F_Pin, (segment_mask & 0x20) ? ON : OFF);
-    HAL_GPIO_WritePin(SEG_G_GPIO_Port, SEG_G_Pin, (segment_mask & 0x40) ? ON : OFF);
-    HAL_GPIO_WritePin(SEG_DP_GPIO_Port, SEG_DP_Pin, (segment_mask & 0x80) ? ON : OFF);
+    // Установить сегменты (например, на порт GPIO)
+    PORT_SEGMENTS = segment_mask;
 }
 
-
-2. Функция управления разрядом: DigitCallback
-
-typedef void (*DigitCallback)(uint8_t digit_index, uint8_t state);
-
-Что делает:
-Эта функция включает или выключает конкретный разряд индикатора.
-
-Параметры:
-digit_index - номер разряда (0 = самый правый, 1, 2, 3...)
-state - состояние (1 = включить, 0 = выключить)
-
-Как работает в динамической индикации:
-Библиотека последовательно:
-
-Вызывает set_digit(текущий, 0) - выключает текущий разряд
-Вызывает set_segments(маска) - устанавливает сегменты для нового разряда
-Вызывает set_digit(текущий, 1) - включает текущий разряд
-
-Примеры вызовов:
-// Для 4-разрядного дисплея:
-set_digit(0, 1); // Включить правый разряд
-set_digit(1, 1); // Включить второй справа разряд
-set_digit(2, 0); // Выключить третий разряд
-set_digit(3, 0); // Выключить левый разряд
-
-Как реализовать:
-// Пример для прямого подключения к GPIO
-void My_SetDigit(uint8_t digit_index, uint8_t state) {
+void My_SetDigit(uint8_t digit_index, bool state) {
+    // Управление разрядом (включить/выключить)
     switch(digit_index) {
-        case 0: // Правый разряд
-            HAL_GPIO_WritePin(DIGIT1_GPIO_Port, DIGIT1_Pin, state ? ON : OFF);
-            break;
-        case 1: // Второй разряд
-            HAL_GPIO_WritePin(DIGIT2_GPIO_Port, DIGIT2_Pin, state ? ON : OFF);
-            break;
-        case 2: // Третий разряд
-            HAL_GPIO_WritePin(DIGIT3_GPIO_Port, DIGIT3_Pin, state ? ON : OFF);
-            break;
-        case 3: // Левый разряд
-            HAL_GPIO_WritePin(DIGIT4_GPIO_Port, DIGIT4_Pin, state ? ON : OFF);
-            break;
+        case 0: DIGIT0_PIN = state; break;
+        case 1: DIGIT1_PIN = state; break;
+        case 2: DIGIT2_PIN = state; break;
+        case 3: DIGIT3_PIN = state; break;
     }
 }
-Полный цикл работы:
-Представим, что мы хотим показать число "1234" на 4-разрядном индикаторе:
 
-Шаг 1: Обновление разряда 0 (правый) - цифра "4"
-
-c
-set_digit(0, 0);        // Выключить разряд 0
-set_segments(0x66);     // Установить сегменты для цифры "4"  
-set_digit(0, 1);        // Включить разряд 0
-Шаг 2: Обновление разряда 1 - цифра "3"
-
-c
-set_digit(1, 0);        // Выключить разряд 1
-set_segments(0x4F);     // Установить сегменты для цифры "3"
-set_digit(1, 1);        // Включить разряд 1
-Шаг 3: Обновление разряда 2 - цифра "2"
-
-c
-set_digit(2, 0);        // Выключить разряд 2  
-set_segments(0x5B);     // Установить сегменты для цифры "2"
-set_digit(2, 1);        // Включить разряд 2
-Шаг 4: Обновление разряда 3 (левый) - цифра "1"
-
-c
-set_digit(3, 0);        // Выключить разряд 3
-set_segments(0x06);     // Установить сегменты для цифры "1"
-set_digit(3, 1);        // Включить разряд 3
-Разница между Common Cathode и Common Anode:
-Common Cathode:
-c
-// Сегменты: 1 = включить, 0 = выключить
-// Разряды: 1 = включить, 0 = выключить
-void SetSegments_CC(uint8_t mask) {
-    // Прямая установка битов
-    SetSegmentA(mask & 0x01);
-    SetSegmentB(mask & 0x02);
-    // ...
+void My_SetBrightness(BrightnessLevel brightness) {
+    // Установить яркость (например, через ШИМ)
+    // Необязательная функция
 }
 
-void SetDigit_CC(uint8_t digit, uint8_t state) {
-    // Прямое управление
-    SetDigitPin(digit, state);
-}
-Common Anode:
-c
-// Сегменты: 0 = включить, 1 = выключить (инвертировано!)
-// Разряды: 0 = включить, 1 = выключить (инвертировано!)
-void SetSegments_CA(uint8_t mask) {
-    // Инвертированная установка битов
-    SetSegmentA(!(mask & 0x01));  // Инвертируем!
-    SetSegmentB(!(mask & 0x02));  // Инвертируем!
-    // ...
+3. Инициализация дисплея
+
+DisplayConfig display_config;
+DisplayError err;
+
+// Создание конфигурации
+err = Display_CreateConfig(&display_config,
+                           4,  // Количество разрядов
+                           DISPLAY_TYPE_COMMON_CATHODE,
+                           My_SetSegments,
+                           My_SetDigit,
+                           My_SetBrightness);  // Опционально
+
+// Инициализация дисплея
+err = Display_Init(&display_config);
+if (err != DISPLAY_OK) {
+    // Обработка ошибки
 }
 
-void SetDigit_CA(uint8_t digit, uint8_t state) {
-    // Инвертированное управление
-    SetDigitPin(digit, !state);  // Инвертируем!
-}
-Библиотека сама учитывает тип индикатора - вам не нужно об этом думать в callback-функциях!
+4. Основной цикл обновления
 
-Реальные примеры для разных способов подключения:
-1. Прямое GPIO подключение:
-c
-void GPIO_SetSegments(uint8_t mask) {
-    // Просто устанавливаем пины согласно маске
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, (mask & 0x01) ? SET : RESET);
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, (mask & 0x02) ? SET : RESET);
-    // ...
+while(1) {
+    Display_Update();  // Вызывать как можно чаще для динамической индикации
+    // Другая логика...
 }
 
-void GPIO_SetDigit(uint8_t digit, uint8_t state) {
-    // Включаем/выключаем конкретный разряд
-    uint16_t pins[] = {GPIO_PIN_8, GPIO_PIN_9, GPIO_PIN_10, GPIO_PIN_11};
-    HAL_GPIO_WritePin(GPIOB, pins[digit], state ? SET : RESET);
-}
-2. Подключение через сдвиговый регистр (74HC595):
-c
-void ShiftRegister_SetSegments(uint8_t mask) {
-    // Отправляем маску в сдвиговый регистр
-    HAL_GPIO_WritePin(LATCH_GPIO_Port, LATCH_Pin, GPIO_PIN_RESET);
-    HAL_SPI_Transmit(&hspi1, &mask, 1, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(LATCH_GPIO_Port, LATCH_Pin, GPIO_PIN_SET);
+Примеры использования
+
+Вывод целого числа
+
+Display_SetNumber(1234);  // Вывести "1234"
+Display_SetNumber(-56);   // Вывести "-56"
+
+Вывод дробного числа
+
+Display_SetFloat(12.34f, 2);  // Вывести "12.34"
+Display_SetFloat(-5.6f, 1);   // Вывести "-5.6"
+
+Вывод произвольных символов
+
+SegmentChar chars[] = {SEG_CHAR_H, SEG_CHAR_E, SEG_CHAR_L, SEG_CHAR_L, SEG_CHAR_O};
+Display_SetCharacters(chars);  // Вывести "HELLO"
+
+Управление точками
+
+Display_SetDot(1, DOT_ON);    // Включить точку на втором разряде
+Display_SetDot(1, DOT_OFF);   // Выключить точку
+
+Бегущая строка
+
+ScrollingText scroll;
+SegmentChar text[] = {SEG_CHAR_H, SEG_CHAR_E, SEG_CHAR_L, SEG_CHAR_L, SEG_CHAR_O};
+
+// Инициализация бегущей строки
+Scroll_Init(&scroll, text, 5, 4, SCROLL_RIGHT, 500, true);
+
+// Запуск
+Scroll_Start(&scroll);
+
+// В основном цикле
+Scroll_Update(&scroll);
+
+Конвертация строки в коды сегментов
+
+char str[] = "TEST 123";
+SegmentChar buffer[20];
+uint16_t converted_len;
+
+String_ToSegmentCodes(str, buffer, 20, &converted_len);
+Display_SetCharacters(buffer);
+
+Конфигурация для встраиваемых систем
+Библиотека поддерживает работу без стандартной библиотеки C:
+
+
+// В segment_lcd_driver.c раскомментируйте:
+// #define DISPLAY_NO_STDLIB
+// #define DISPLAY_STATIC_BUFFERS
+
+При использовании DISPLAY_STATIC_BUFFERS можно задать максимальное количество разрядов:
+
+#define MAX_DISPLAY_DIGITS 8
+
+API функций
+Основные функции
+Display_Init() - Инициализация дисплея
+Display_Update() - Обновление дисплея (динамическая индикация)
+Display_SetNumber() - Вывод целого числа
+Display_SetFloat() - Вывод дробного числа
+Display_SetCharacters() - Вывод массива символов
+Display_SetCharacter() - Вывод символа в конкретный разряд
+Display_SetDot() - Управление точкой
+Display_Clear() - Очистка дисплея
+Display_SetBrightness() - Установка яркости
+
+Функции времени
+
+Display_Tick() - Инкремент внутреннего счетчика времени
+Display_DelayMs() - Задержка с обновлением дисплея
+Display_SetTimeCallback() - Установка callback-функции времени
+
+Функции бегущей строки
+
+Scroll_Init() - Инициализация бегущей строки
+Scroll_Update() - Обновление бегущей строки
+Scroll_Start() - Запуск бегущей строки
+Scroll_Stop() - Остановка бегущей строки
+Scroll_Reset() - Сброс бегущей строки
+Scroll_IsFinished() - Проверка завершения
+
+Обработка ошибок
+Все функции возвращают DisplayError:
+
+typedef enum {
+    DISPLAY_OK = 0,
+    DISPLAY_ERROR_NULL_POINTER,
+    DISPLAY_ERROR_INVALID_DIGIT,
+    DISPLAY_ERROR_INVALID_CHAR,
+    DISPLAY_ERROR_MEMORY,
+    DISPLAY_ERROR_NOT_INITIALIZED,
+    DISPLAY_ERROR_INVALID_CONFIG,
+    DISPLAY_ERROR_BUFFER_OVERFLOW
+} DisplayError;
+
+Пример проверки ошибок:
+
+DisplayError err = Display_SetNumber(1234);
+if (err != DISPLAY_OK) {
+    // Обработка ошибки
+    switch(err) {
+        case DISPLAY_ERROR_NOT_INITIALIZED:
+            // Дисплей не инициализирован
+            break;
+        // ... другие ошибки
+    }
 }
 
-void ShiftRegister_SetDigit(uint8_t digit, uint8_t state) {
-    // Управляем разрядами через второй регистр
-    uint8_t digit_mask = (1 << digit);
-    HAL_GPIO_WritePin(LATCH_GPIO_Port, LATCH_Pin, GPIO_PIN_RESET);
-    HAL_SPI_Transmit(&hspi1, &digit_mask, 1, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(LATCH_GPIO_Port, LATCH_Pin, GPIO_PIN_SET);
-}
-3. Подключение через I2C расширитель (PCF8574):
-c
-void I2C_SetSegments(uint8_t mask) {
-    // Отправляем маску по I2C
-    uint8_t data[2] = {0x01, mask}; // Команда + данные
-    HAL_I2C_Master_Transmit(&hi2c1, 0x20<<1, data, 2, HAL_MAX_DELAY);
-}
+Настройка сегментных кодов
 
-void I2C_SetDigit(uint8_t digit, uint8_t state) {
-    // Управляем разрядами через второй I2C расширитель
-    uint8_t digit_mask = state ? (1 << digit) : 0;
-    uint8_t data[2] = {0x01, digit_mask};
-    HAL_I2C_Master_Transmit(&hi2c1, 0x21<<1, data, 2, HAL_MAX_DELAY);
-}
-Ключевые моменты для понимания:
-set_segments - говорит "какие сегменты светятся" (вся цифра)
-set_digit - говорит "какой разряд сейчас активен"
-Библиотека сама переключает разряды - вам не нужно управлять динамической индикацией
-Вам нужно только реализовать эти 2 функции под ваше железо
-Функции должны быть быстрыми - они вызываются в прерывании таймера
+Коды сегментов определены в массивах SEGMENT_CODES_CC (общий катод) и SEGMENT_CODES_CA (общий анод). При необходимости можно модифицировать эти таблицы для нестандартных дисплеев.
+
+Требования
+
+    • Компилятор C99 или новее
+    • Для стандартных функций: <stdint.h>, <stdbool.h>, <string.h>, <stdlib.h>, <math.h>
+    • При использовании DISPLAY_NO_STDLIB потребуется реализовать необходимые функции самостоятельно
+
+Лицензия
+
+[Указать лицензию, например: MIT License]
+
+Контакты и поддержка
+
+[Указать контактную информацию или ссылку на репозиторий]
