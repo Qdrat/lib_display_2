@@ -3,253 +3,200 @@
 #include <string.h>
 
 // ============== Внутренние функции ==============
-
-/**
- * @brief Получение текущего времени
- */
-static uint32_t get_current_time(const LcdCoreConfig *config)
+static uint32_t get_current_time(const LcdCore *core)
 {
-    if (config->get_time_ms)
+    if (core->get_time_ms)
     {
-        return config->get_time_ms();
+        return core->get_time_ms();
     }
 
-    // Возвращаем системное время (заглушка)
     static uint32_t dummy_time = 0;
     return dummy_time++;
 }
 
-/**
- * @brief Вычисление времени горения разряда
- */
-static uint16_t calculate_digit_time_us(uint16_t refresh_rate_hz, uint8_t digits_count)
+static void update_digit(LcdCore *core)
 {
-    if (refresh_rate_hz == 0)
-        refresh_rate_hz = 60; // По умолчанию 60 Гц
-
-    // Время кадра = 1 / частота (в микросекундах)
-    uint32_t frame_time_us = 1000000UL / refresh_rate_hz;
-
-    // Время на разряд = время кадра / количество разрядов
-    return (uint16_t)(frame_time_us / digits_count);
-}
-
-/**
- * @brief Аппаратное обновление разряда
- */
-static void update_hardware_digit(LcdCoreConfig *config)
-{
-    uint8_t digit = config->_internal.current_digit;
+    uint8_t digit = core->state.current_digit;
 
     // 1. Выключаем текущий разряд
-    bool off_state = (config->type == LCD_TYPE_COMMON_CATHODE);
-    config->set_digit(digit, off_state);
+    bool off_state = (core->type == LCD_TYPE_COMMON_CATHODE);
+    core->set_digit(digit, off_state);
 
-    // 2. Подготавливаем маску сегментов
-    uint8_t segment_mask = config->_internal.segment_buffer[digit];
+    // 2. Формируем маску сегментов с точкой
+    uint8_t segment_mask = core->state.segment_mask[digit] & 0x7F; // 7 бит
 
-    // 3. Добавляем точку
-    if (config->_internal.dot_buffer[digit])
+    // Добавляем точку (бит 7)
+    if (core->state.dot_flags[digit])
     {
-        // Для общего катода: точка = бит 7 = 1
-        // Для общего анода: точка = бит 7 = 0
-        if (config->type == LCD_TYPE_COMMON_CATHODE)
-        {
-            segment_mask |= 0x80;
-        }
-        else
-        {
-            segment_mask &= ~0x80;
-        }
+        segment_mask |= 0x80;
     }
-    else
+
+    // 3. Инвертируем для общего анода
+    if (core->type == LCD_TYPE_COMMON_ANODE)
     {
-        if (config->type == LCD_TYPE_COMMON_CATHODE)
-        {
-            segment_mask &= ~0x80;
-        }
-        else
-        {
-            segment_mask |= 0x80;
-        }
+        segment_mask = ~segment_mask;
     }
 
     // 4. Устанавливаем сегменты
-    config->set_segments(segment_mask);
+    core->set_segments(segment_mask);
 
     // 5. Включаем текущий разряд
-    config->set_digit(digit, !off_state);
+    core->set_digit(digit, !off_state);
 
     // 6. Переходим к следующему разряду
-    config->_internal.current_digit =
-        (digit + 1) % config->digits_count;
+    core->state.current_digit = (digit + 1) % core->digits_count;
 }
 
 // ============== Публичные функции ==============
-
-LcdCoreError lcd_core_init(LcdCoreConfig *config)
+LcdCoreError lcd_core_init(LcdCore *core,
+                           uint8_t digits_count,
+                           LcdType type,
+                           uint16_t frame_time_ms,
+                           LcdSegmentCallback seg_cb,
+                           LcdDigitCallback dig_cb)
 {
-    // Проверка указателей
-    if (!config || !config->set_segments || !config->set_digit)
+    if (!core || !seg_cb || !dig_cb)
     {
-        return LCD_CORE_ERROR_NULL_POINTER;
+        return LCD_CORE_ERROR_NULL;
     }
 
-    // Проверка конфигурации
-    if (config->digits_count == 0)
+    if (digits_count == 0 || frame_time_ms == 0)
     {
         return LCD_CORE_ERROR_INVALID_CONFIG;
     }
 
-    // Выделение памяти для буферов
-    config->_internal.segment_buffer =
-        (uint8_t *)malloc(config->digits_count);
+    // Выделяем память для буферов
+    core->state.segment_mask = (uint8_t *)malloc(digits_count);
+    core->state.dot_flags = (uint8_t *)malloc(digits_count);
 
-    config->_internal.dot_buffer =
-        (uint8_t *)malloc(config->digits_count);
-
-    if (!config->_internal.segment_buffer ||
-        !config->_internal.dot_buffer)
+    if (!core->state.segment_mask || !core->state.dot_flags)
     {
-        free(config->_internal.segment_buffer);
-        free(config->_internal.dot_buffer);
-        return LCD_CORE_ERROR_MEMORY;
+        free(core->state.segment_mask);
+        free(core->state.dot_flags);
+        return LCD_CORE_ERROR_NULL;
     }
 
-    // Вычисление времени горения разряда
-    config->_internal.digit_time_us =
-        calculate_digit_time_us(config->refresh_rate_hz,
-                                config->digits_count);
-
-    // Инициализация буферов
-    memset(config->_internal.segment_buffer,
-           (config->type == LCD_TYPE_COMMON_CATHODE) ? 0x00 : 0xFF,
-           config->digits_count);
-
-    memset(config->_internal.dot_buffer, 0, config->digits_count);
-
-    // Инициализация переменных
-    config->_internal.current_digit = 0;
-    config->_internal.last_update_time = 0;
-    config->_internal.brightness = 100;
-    config->_initialized = true;
-
-    // Установка яркости
-    if (config->set_brightness)
+    // Вычисляем время на разряд
+    core->state.digit_time_ms = frame_time_ms / digits_count;
+    if (core->state.digit_time_ms == 0)
     {
-        config->set_brightness(config->_internal.brightness);
+        core->state.digit_time_ms = 1;
+    }
+
+    // Инициализация
+    core->set_segments = seg_cb;
+    core->set_digit = dig_cb;
+    core->set_brightness = NULL;
+    core->get_time_ms = NULL;
+    core->digits_count = digits_count;
+    core->type = type;
+    core->frame_time_ms = frame_time_ms;
+    core->brightness = 100;
+
+    // Инициализация состояния
+    uint8_t clear_value = (type == LCD_TYPE_COMMON_CATHODE) ? 0x00 : 0xFF;
+    memset(core->state.segment_mask, clear_value, digits_count);
+    memset(core->state.dot_flags, 0, digits_count);
+    core->state.last_update = 0;
+    core->state.current_digit = 0;
+    core->state.initialized = true;
+
+    return LCD_CORE_OK;
+}
+
+LcdCoreError lcd_core_update(LcdCore *core)
+{
+    if (!core || !core->state.initialized)
+    {
+        return LCD_CORE_ERROR_NOT_INIT;
+    }
+
+    uint32_t current_time = get_current_time(core);
+
+    // Проверяем, пришло ли время обновить разряд
+    if (current_time - core->state.last_update >= core->state.digit_time_ms)
+    {
+        update_digit(core);
+        core->state.last_update = current_time;
     }
 
     return LCD_CORE_OK;
 }
 
-LcdCoreError lcd_core_update(LcdCoreConfig *config)
+LcdCoreError lcd_core_set_digit(LcdCore *core,
+                                uint8_t digit,
+                                uint8_t segment_mask,
+                                bool dot)
 {
-    if (!config || !config->_internal.initialized)
+    if (!core || !core->state.initialized)
     {
-        return LCD_CORE_ERROR_NOT_INITIALIZED;
+        return LCD_CORE_ERROR_NOT_INIT;
     }
 
-    uint32_t current_time = get_current_time(config);
-    uint32_t elapsed_us = (current_time - config->_internal.last_update_time) * 1000;
-
-    // Проверяем, прошло ли достаточно времени
-    if (elapsed_us >= config->_internal.digit_time_us)
-    {
-        update_hardware_digit(config);
-        config->_internal.last_update_time = current_time;
-    }
-
-    return LCD_CORE_OK;
-}
-
-LcdCoreError lcd_core_set_segment_mask(LcdCoreConfig *config,
-                                       uint8_t digit,
-                                       uint8_t segment_mask)
-{
-    if (!config || !config->_internal.initialized)
-    {
-        return LCD_CORE_ERROR_NOT_INITIALIZED;
-    }
-
-    if (digit >= config->digits_count)
+    if (digit >= core->digits_count)
     {
         return LCD_CORE_ERROR_INVALID_DIGIT;
     }
 
-    config->_internal.segment_buffer[digit] = segment_mask;
+    core->state.segment_mask[digit] = segment_mask & 0x7F;
+    core->state.dot_flags[digit] = dot ? 1 : 0;
+
     return LCD_CORE_OK;
 }
 
-LcdCoreError lcd_core_set_dot(LcdCoreConfig *config,
-                              uint8_t digit,
-                              bool dot_on)
+LcdCoreError lcd_core_set_brightness(LcdCore *core, uint8_t brightness)
 {
-    if (!config || !config->_internal.initialized)
+    if (!core || !core->state.initialized)
     {
-        return LCD_CORE_ERROR_NOT_INITIALIZED;
+        return LCD_CORE_ERROR_NOT_INIT;
     }
 
-    if (digit >= config->digits_count)
+    if (brightness > 100)
     {
-        return LCD_CORE_ERROR_INVALID_DIGIT;
+        brightness = 100;
     }
 
-    config->_internal.dot_buffer[digit] = dot_on ? 1 : 0;
+    core->brightness = brightness;
+
+    if (core->set_brightness)
+    {
+        core->set_brightness(brightness);
+    }
+
     return LCD_CORE_OK;
 }
 
-LcdCoreError lcd_core_clear(LcdCoreConfig *config)
+LcdCoreError lcd_core_clear(LcdCore *core)
 {
-    if (!config || !config->_internal.initialized)
+    if (!core || !core->state.initialized)
     {
-        return LCD_CORE_ERROR_NOT_INITIALIZED;
+        return LCD_CORE_ERROR_NOT_INIT;
     }
 
     // Очищаем буферы
-    uint8_t clear_value = (config->type == LCD_TYPE_COMMON_CATHODE) ? 0x00 : 0xFF;
-
-    memset(config->_internal.segment_buffer, clear_value, config->digits_count);
-    memset(config->_internal.dot_buffer, 0, config->digits_count);
+    uint8_t clear_value = (core->type == LCD_TYPE_COMMON_CATHODE) ? 0x00 : 0xFF;
+    memset(core->state.segment_mask, clear_value, core->digits_count);
+    memset(core->state.dot_flags, 0, core->digits_count);
 
     // Выключаем все разряды аппаратно
-    bool off_state = (config->type == LCD_TYPE_COMMON_CATHODE);
-    for (uint8_t i = 0; i < config->digits_count; i++)
+    bool off_state = (core->type == LCD_TYPE_COMMON_CATHODE);
+    for (uint8_t i = 0; i < core->digits_count; i++)
     {
-        config->set_digit(i, off_state);
+        core->set_digit(i, off_state);
     }
 
-    // Выключаем сегменты
-    config->set_segments(clear_value);
+    // Выключаем все сегменты
+    core->set_segments(clear_value);
 
     return LCD_CORE_OK;
 }
 
-LcdCoreError lcd_core_set_brightness(LcdCoreConfig *config, uint8_t brightness)
+uint32_t lcd_core_get_time(const LcdCore *core)
 {
-    if (!config || !config->_internal.initialized)
+    if (!core)
     {
-        return LCD_CORE_ERROR_NOT_INITIALIZED;
-    }
-
-    // Проверка диапазона
-    if (brightness > 100)
-        brightness = 100;
-
-    config->_internal.brightness = brightness;
-
-    // Аппаратная установка яркости
-    if (config->set_brightness)
-    {
-        config->set_brightness(brightness);
-    }
-
-    return LCD_CORE_OK;
-}
-
-uint32_t lcd_core_get_time(const LcdCoreConfig *config)
-{
-    if (!config)
         return 0;
-    return get_current_time(config);
+    }
+
+    return get_current_time(core);
 }
