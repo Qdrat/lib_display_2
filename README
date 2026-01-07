@@ -202,3 +202,58 @@ if (err != DISPLAY_OK) {
 Контакты и поддержка
 
 [Указать контактную информацию или ссылку на репозиторий]
+
+while (1)
+    {
+        // Обновление дисплея (вызывать часто!)
+        lcd_update(&display);
+        
+        // Примеры использования:
+        
+        // Отображение числа
+        lcd_show_int(&display, 1234, 0, false);
+        delay_ms(1000);
+        
+        // Отображение дробного числа
+        lcd_show_float(&display, 12.34, 2);
+        delay_ms(1000);
+        
+        // Отображение строки
+        lcd_show_ascii(&display, "HELLO");
+        delay_ms(1000);
+        
+        // Бегущая строка
+        lcd_scroll_init(&scroll_text, &display, 
+                       "Hello World!", SCROLL_LEFT, 
+                       200, true);
+        lcd_scroll_start(&scroll_text);
+        
+        // В течение 5 секунд обновляем бегущую строку
+        uint32_t start_time = my_get_time_ms();
+        while (my_get_time_ms() - start_time < 5000)
+        {
+            lcd_update(&display);
+            lcd_scroll_update(&scroll_text);
+            delay_ms(10);
+        }
+        
+        lcd_scroll_stop(&scroll_text);
+        
+        // Анимация
+        lcd_animate(&display, ANIMATION_BLINK, 1000);
+        
+        // В течение 1 секунды обновляем анимацию
+        start_time = my_get_time_ms();
+        while (my_get_time_ms() - start_time < 1000)
+        {
+            lcd_update(&display);
+            lcd_animation_update(&display);
+            delay_ms(10);
+        }
+    }
+    
+    // Освобождение ресурсов
+    lcd_deinit(&display);
+    
+    return 0;
+}
