@@ -53,31 +53,47 @@ static LcdError update_core_buffer(LcdDisplay* display)
  * @brief Конвертация числа в строку символов
  */
 static LcdError int_to_chars(int32_t number, SegmentChar* buffer, 
-                            uint8_t buffer_size, uint8_t* length, 
-                            bool leading_zeros)
+                             uint8_t buffer_size, uint8_t* length,
+                             bool leading_zeros)
 {
     if (!buffer || buffer_size == 0)
     {
         return LCD_ERROR_NULL_POINTER;
     }
-    
+
+    // Инициализируем буфер пустыми символами
+    for (uint8_t i = 0; i < buffer_size; ++i)
+    {
+        buffer[i] = SEG_CHAR_EMPTY;
+    }
+
     bool negative = (number < 0);
     uint32_t abs_value = negative ? (uint32_t)(-number) : (uint32_t)number;
-    
+
     // Преобразуем в строку цифр
     uint8_t pos = buffer_size - 1;
     uint8_t digit_count = 0;
-    
-    do
+
+    // ОСОБЫЙ СЛУЧАЙ: число 0
+    if (abs_value == 0)
     {
-        buffer[pos--] = (SegmentChar)(abs_value % 10);
-        abs_value /= 10;
-        digit_count++;
-    } while (abs_value > 0 && pos < buffer_size);
-    
+        buffer[pos] = SEG_CHAR_0;
+        digit_count = 1;
+        pos--;
+    }
+    else
+    {
+        while (abs_value > 0 && pos < buffer_size) // pos должен быть >= 0
+        {
+            buffer[pos--] = (SegmentChar)(abs_value % 10);
+            abs_value /= 10;
+            digit_count++;
+        }
+    }
+
     // Заполняем ведущими нулями или пробелами
     uint8_t start_pos = buffer_size - digit_count;
-    
+
     if (leading_zeros)
     {
         for (uint8_t i = 0; i < start_pos; i++)
@@ -87,23 +103,20 @@ static LcdError int_to_chars(int32_t number, SegmentChar* buffer,
     }
     else
     {
-        for (uint8_t i = 0; i < start_pos; i++)
-        {
-            buffer[i] = SEG_CHAR_EMPTY;
-        }
+        // Оставляем SEG_CHAR_EMPTY (уже установлено)
     }
-    
-    // Добавляем знак минус
+
+    // Добавляем знак минус, если есть место
     if (negative && start_pos > 0)
     {
         buffer[start_pos - 1] = SEG_CHAR_MINUS;
     }
-    
+
     if (length)
     {
         *length = buffer_size;
     }
-    
+
     return LCD_OK;
 }
 
@@ -236,49 +249,47 @@ LcdError lcd_show_int(LcdDisplay* display, int32_t number,
     // Копируем в буфер дисплея
     memcpy(display->char_buffer, temp_buffer, display->buffer_size);
     
-    // Устанавливаем точку, если нужно
-    if (decimal_position > 0 && decimal_position < display->buffer_size)
+    // очистка точек
+    memset(display->dot_buffer, 0, display->buffer_size);
+
+    // decimal_position — номер digit (1 = левый)
+    if (decimal_position >= 1 && decimal_position <= display->buffer_size)
     {
-        memset(display->dot_buffer, 0, display->buffer_size);
-        display->dot_buffer[decimal_position] = 1;
-    }
-    else
-    {
-        memset(display->dot_buffer, 0, display->buffer_size);
+        display->dot_buffer[decimal_position - 1] = 1;
     }
     
     // Обновляем ядро
     return update_core_buffer(display);
 }
 
-LcdError lcd_show_float(LcdDisplay* display, float number, 
-                        uint8_t decimal_places)
-{
-    if (!display || !display->initialized)
-    {
-        return LCD_ERROR_NOT_INITIALIZED;
-    }
-    
-    if (decimal_places >= display->buffer_size)
-    {
-        decimal_places = display->buffer_size - 1;
-    }
-    
-    // Проверяем диапазон
-    float max_value = powf(10.0f, (float)(display->buffer_size - decimal_places - 1)) - 1.0f;
-    float min_value = -max_value;
-    
-    if (number > max_value) number = max_value;
-    if (number < min_value) number = min_value;
-    
-    // Конвертируем в целое с учетом десятичных знаков
-    int32_t scaled = (int32_t)(number * powf(10.0f, (float)decimal_places));
-    
-    // Отображаем как целое с точкой
-    return lcd_show_int(display, scaled, 
-                       display->buffer_size - decimal_places, 
-                       false);
-}
+//LcdError lcd_show_float(LcdDisplay* display, float number,
+//                        uint8_t decimal_places)
+//{
+//    if (!display || !display->initialized)
+//    {
+//        return LCD_ERROR_NOT_INITIALIZED;
+//    }
+//
+//    if (decimal_places >= display->buffer_size)
+//    {
+//        decimal_places = display->buffer_size - 1;
+//    }
+//
+//    // Проверяем диапазон
+//    float max_value = powf(10.0f, (float)(display->buffer_size - decimal_places - 1)) - 1.0f;
+//    float min_value = -max_value;
+//
+//    if (number > max_value) number = max_value;
+//    if (number < min_value) number = min_value;
+//
+//    // Конвертируем в целое с учетом десятичных знаков
+//    int32_t scaled = (int32_t)(number * powf(10.0f, (float)decimal_places));
+//
+//    // Отображаем как целое с точкой
+//    return lcd_show_int(display, scaled,
+//                       display->buffer_size - decimal_places,
+//                       false);
+//}
 
 LcdError lcd_show_string(LcdDisplay* display, const SegmentChar* chars, 
                          uint8_t length)
@@ -295,8 +306,12 @@ LcdError lcd_show_string(LcdDisplay* display, const SegmentChar* chars,
     
     // Копируем символы
     memset(display->char_buffer, SEG_CHAR_EMPTY, display->buffer_size);
-    memcpy(display->char_buffer, chars, length);
     
+    for (uint8_t i = 0; i < length; i++)
+    {
+    	display->char_buffer[i] = (uint8_t)chars[i];
+    }
+
     // Очищаем точки
     memset(display->dot_buffer, 0, display->buffer_size);
     
@@ -310,20 +325,37 @@ LcdError lcd_show_ascii(LcdDisplay* display, const char* str)
     {
         return LCD_ERROR_NULL_POINTER;
     }
-    
-    // Конвертируем строку
-    SegmentChar temp_buffer[16];
-    uint16_t converted_length = 0;
-    
-    if (!segchar_convert_string(str, temp_buffer, 
-                               display->buffer_size, 
-                               &converted_length))
+
+    // Очищаем буферы символов и точек
+    memset(display->char_buffer, SEG_CHAR_EMPTY, display->buffer_size);
+    memset(display->dot_buffer, 0, display->buffer_size);
+
+    uint8_t out_pos = 0;
+
+    // Обрабатываем строку символ за символом
+    while (*str && out_pos < display->buffer_size)
     {
-        return LCD_ERROR_INVALID_CHAR;
+        if (*str == '.')
+        {
+            // Точка относится к ПРЕДЫДУЩЕМУ символу
+            if (out_pos > 0)
+            {
+                display->dot_buffer[out_pos - 1] = 1;
+            }
+            // Если точка в начале строки - игнорируем
+            str++;
+            continue;
+        }
+
+        // Конвертируем символ
+        SegmentChar sc = segchar_from_ascii(*str);
+        display->char_buffer[out_pos] = (uint8_t)sc;
+        out_pos++;
+        str++;
     }
-    
-    // Отображаем
-    return lcd_show_string(display, temp_buffer, converted_length);
+
+    // Обновляем дисплей
+    return update_core_buffer(display);
 }
 
 LcdError lcd_set_char(LcdDisplay* display, uint8_t position, 

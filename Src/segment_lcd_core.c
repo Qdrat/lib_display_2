@@ -131,7 +131,7 @@ LcdCoreError lcd_core_init(LcdCoreConfig* config)
     config->_internal.current_digit = 0;
     config->_internal.last_update_time = 0;
     config->_internal.brightness = 100;
-    config->_initialized = true;
+    config->_internal.initialized = true;
     
     // Установка яркости
     if (config->set_brightness)

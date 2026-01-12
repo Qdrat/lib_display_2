@@ -17,97 +17,155 @@ static const uint8_t DEFAULT_TABLE_CC[SEG_CHAR_COUNT] = {
     0x7F, // 8: ABCDEFG
     0x6F, // 9: ABCDFG
     
-    // Буквы A-Z
-    0x77, // A: ABCEFG
-    0x7C, // B: CDEFG
-    0x39, // C: ADEF
-    0x5E, // D: BCDEG
-    0x79, // E: ADEFG
-    0x71, // F: AEFG
-    0x3D, // G: ACDFG
-    0x76, // H: BCEFG
-    0x30, // I: EF
-    0x1E, // J: BCDE
-    0x76, // K: BCEFG (такой же как H)
-    0x38, // L: DEF
-    0x37, // M: ACE (специальный)
-    0x54, // N: CEG
-    0x3F, // O: ABCDEF (такой же как 0)
-    0x73, // P: ABEFG
-    0x67, // Q: ABCFG
-    0x50, // R: EG
-    0x6D, // S: ACDFG (такой же как 5)
-    0x78, // T: DEFG
-    0x3E, // U: BCDEF
-    0x3E, // V: BCDEF (такой же как U)
-    0x3E, // W: BCDEF (такой же как U)
-    0x76, // X: BCEFG (такой же как H)
-    0x6E, // Y: BCDFG
-    0x5B, // Z: ABDEG (такой же как 2)
+	// Буквы A-Z
+	0x77, // A: ABCEFG
+	0x7C, // B: CDEFG
+	0x39, // C: ADEF
+	0x5E, // D: BCDEG
+	0x79, // E: ADEFG
+	0x71, // F: AEFG
+	0x3D, // G: ACDFG
+	0x76, // H: BCEFG
+	0x30, // I: EF
+	0x1E, // J: BCDE
+	0x76, // K: BCEFG (такой же как H)
+	0x38, // L: DEF
+	0x37, // M: ACE (специальный)
+	0x54, // N: CEG
+	0x3F, // O: ABCDEF (такой же как 0)
+	0x73, // P: ABEFG
+	0x67, // Q: ABCFG
+	0x50, // R: EG
+	0x6D, // S: ACDFG (такой же как 5)
+	0x78, // T: DEFG
+	0x3E, // U: BCDEF
+	0x3E, // V: BCDEF (такой же как U)
+	0x3E, // W: BCDEF (такой же как U)
+	0x76, // X: BCEFG (такой же как H)
+	0x6E, // Y: BCDFG
+	0x5B, // Z: ABDEG (такой же как 2)
     
-    // Символы
-    0x00, // Пробел
-    0x40, // Минус
-    0x48, // Равно
-    0x08, // Подчеркивание
-    0x63, // Градус
-    0x49, // Процент
-    0x00, // Двоеточие (управляется отдельно)
-    0x00, // Точка с запятой
-    0x22, // Кавычки
-    0x02, // Апостроф
-    0x39, // Квадратная скобка [
-    0x0F, // Квадратная скобка ]
-    0x39, // Круглая скобка (
-    0x0F, // Круглая скобка )
-    0x39, // Фигурная скобка {
-    0x0F, // Фигурная скобка }
-    0x00, // Меньше
-    0x00, // Больше
-    0x53, // Вопрос
-    0x82, // Восклицание
-    0x77, // @ (как A)
-    0x49, // Решетка
-    0x49, // Доллар
-    0x7F, // Амперсанд
-    0x49, // Звезда
-    0x48, // Плюс
-    0x00, // Запятая
-    0x00, // Точка (без сегментов)
-    0x01, // Слеш
-    0x40, // Обратный слеш
-    0x30, // Вертикальная черта
-    0x01, // Тильда
-    0x00, // Циркумфлекс
-    0x00, // Гравис
-    
-    // Специальные символы
-    0x00, // Стрелка вверх
-    0x00, // Стрелка вниз
-    0x00, // Стрелка влево
-    0x00, // Стрелка вправо
-    0x00, // Сердце
-    0x00, // Улыбка
-    0x00, // Грусть
-    0x00, // Колокольчик
+	// Символы
+	0x00, // Пробел (SEG_CHAR_SPACE) - ВЫКЛ все сегменты
+	0x40, // Минус (SEG_CHAR_MINUS)
+	0x48, // Равно (SEG_CHAR_EQUAL)
+	0x08, // Подчеркивание (SEG_CHAR_UNDERSCORE)
+	0x63, // Градус (SEG_CHAR_DEGREE)
+	0x49, // Процент (SEG_CHAR_PERCENT)
+	0x00, // Двоеточие (SEG_CHAR_COLON) - управляется отдельно
+	0x00, // Точка с запятой (SEG_CHAR_SEMICOLON)
+	0x22, // Кавычки (SEG_CHAR_QUOTE)
+	0x02, // Апостроф (SEG_CHAR_APOSTROPHE)
+	0x39, // Квадратная скобка [ (SEG_CHAR_LBRACKET)
+	0x0F, // Квадратная скобка ] (SEG_CHAR_RBRACKET)
+	0x39, // Круглая скобка ( (SEG_CHAR_LPAREN)
+	0x0F, // Круглая скобка ) (SEG_CHAR_RPAREN)
+	0x39, // Фигурная скобка { (SEG_CHAR_LBRACE)
+	0x0F, // Фигурная скобка } (SEG_CHAR_RBRACE)
+	0x00, // Меньше (SEG_CHAR_LT)
+	0x00, // Больше (SEG_CHAR_GT)
+	0x53, // Вопрос (SEG_CHAR_QUESTION)
+	0x82, // Восклицание (SEG_CHAR_EXCLAM)
+	0x77, // @ (SEG_CHAR_AT) (как A)
+	0x49, // Решетка (SEG_CHAR_HASH)
+	0x49, // Доллар (SEG_CHAR_DOLLAR)
+	0x7F, // Амперсанд (SEG_CHAR_AMP)
+	0x49, // Звезда (SEG_CHAR_STAR)
+	0x48, // Плюс (SEG_CHAR_PLUS)
+	0x00, // Запятая (SEG_CHAR_COMMA)
+	0x00, // Точка (SEG_CHAR_DOT) (без сегментов, только для точки в числе)
+	0x01, // Слеш (SEG_CHAR_SLASH)
+	0x40, // Обратный слеш (SEG_CHAR_BACKSLASH)
+	0x30, // Вертикальная черта (SEG_CHAR_PIPE)
+	0x01, // Тильда (SEG_CHAR_TILDE)
+	0x00, // Циркумфлекс (SEG_CHAR_CARET)
+	0x00, // Гравис (SEG_CHAR_GRAVE)
+
+	// SEG_CHAR_EMPTY (индекс 64) - ПУСТОЙ символ
+	0x00, // ВСЕ сегменты ВЫКЛЮЧЕНЫ
+
 };
 
 // ============== Стандартная таблица для общего анода ==============
 static const uint8_t DEFAULT_TABLE_CA[SEG_CHAR_COUNT] = {
-    // Инвертированные значения
-    0xC0, // 0
-    0xF9, // 1
-    0xA4, // 2
-    0xB0, // 3
-    0x99, // 4
-    0x92, // 5
-    0x82, // 6
-    0xF8, // 7
-    0x80, // 8
-    0x90, // 9
-    
-    // ... остальные инвертированные значения
-    // (пропускаю для краткости, но в реальном коде должны быть все)
+	// Инвертированные значения от общей катодной таблицы
+	0xC0, // 0: ~0x3F
+	0xF9, // 1: ~0x06
+	0xA4, // 2: ~0x5B
+	0xB0, // 3: ~0x4F
+	0x99, // 4: ~0x66
+	0x92, // 5: ~0x6D
+	0x82, // 6: ~0x7D
+	0xF8, // 7: ~0x07
+	0x80, // 8: ~0x7F
+	0x90, // 9: ~0x6F
+
+	// Буквы A-Z (инвертированные)
+	0x88, // A: ~0x77
+	0x83, // B: ~0x7C
+	0xC6, // C: ~0x39
+	0xA1, // D: ~0x5E
+	0x86, // E: ~0x79
+	0x8E, // F: ~0x71
+	0xC2, // G: ~0x3D
+	0x89, // H: ~0x76
+	0xCF, // I: ~0x30
+	0xE1, // J: ~0x1E
+	0x89, // K: ~0x76
+	0xC7, // L: ~0x38
+	0xC8, // M: ~0x37
+	0xAB, // N: ~0x54
+	0xC0, // O: ~0x3F
+	0x8C, // P: ~0x73
+	0x98, // Q: ~0x67
+	0xAF, // R: ~0x50
+	0x92, // S: ~0x6D
+	0x87, // T: ~0x78
+	0xC1, // U: ~0x3E
+	0xC1, // V: ~0x3E
+	0xC1, // W: ~0x3E
+	0x89, // X: ~0x76
+	0x91, // Y: ~0x6E
+	0xA4, // Z: ~0x5B
+
+	// Символы (инвертированные)
+	0xFF, // Пробел: все сегменты ВЫКЛ (инвертированный 0x00)
+	0xBF, // Минус: ~0x40
+	0xB7, // Равно: ~0x48
+	0xF7, // Подчеркивание: ~0x08
+	0x9C, // Градус: ~0x63
+	0xB6, // Процент: ~0x49
+	0xFF, // Двоеточие: ~0x00
+	0xFF, // Точка с запятой: ~0x00
+	0xDD, // Кавычки: ~0x22
+	0xFD, // Апостроф: ~0x02
+	0xC6, // [: ~0x39
+	0xF0, // ]: ~0x0F
+	0xC6, // (: ~0x39
+	0xF0, // ): ~0x0F
+	0xC6, // {: ~0x39
+	0xF0, // }: ~0x0F
+	0xFF, // <: ~0x00
+	0xFF, // >: ~0x00
+	0xAC, // ?: ~0x53
+	0x7D, // !: ~0x82
+	0x88, // @: ~0x77
+	0xB6, // #: ~0x49
+	0xB6, // $: ~0x49
+	0x80, // &: ~0x7F
+	0xB6, // *: ~0x49
+	0xB7, // +: ~0x48
+	0xFF, // ,: ~0x00
+	0xFF, // .: ~0x00
+	0xFE, // /: ~0x01
+	0xBF, // \: ~0x40
+	0xCF, // |: ~0x30
+	0xFE, // ~: ~0x01
+	0xFF, // ^: ~0x00
+	0xFF, // `: ~0x00
+
+	// SEG_CHAR_EMPTY (индекс 64) - ПУСТОЙ символ
+	0xFF, // ВСЕ сегменты ВЫКЛЮЧЕНЫ (инвертированный 0x00)
 };
 
 // ============== Структуры таблиц ==============
@@ -152,12 +210,27 @@ uint8_t segchar_get_code(SegmentChar character,
     // Проверка диапазона
     if ((uint16_t)character >= table->size)
     {
-        return table->default_char;
+    	return table->codes[table->default_char];
     }
     
     return table->codes[character];
 }
 
+
+//SegmentChar segchar_from_ascii(char c)
+//{
+//    /* цифры */
+//    if (c >= '0' && c <= '9')
+//        return (SegmentChar)(c - '0');
+//
+//    /* поддерживаемые символы */
+//    switch (c)
+//    {
+//        case '-': return SEG_CHAR_MINUS;
+//        case ' ': return SEG_CHAR_EMPTY;
+//        default:  return SEG_CHAR_EMPTY;  // ← КЛЮЧЕВО
+//    }
+//}
 SegmentChar segchar_from_ascii(char ascii_char)
 {
     // Конвертация ASCII в SegmentChar
@@ -173,7 +246,7 @@ SegmentChar segchar_from_ascii(char ascii_char)
     {
         return (SegmentChar)(SEG_CHAR_A + (ascii_char - 'a'));
     }
-    
+
     // Специальные символы
     switch (ascii_char)
     {
@@ -210,7 +283,7 @@ SegmentChar segchar_from_ascii(char ascii_char)
         case '`': return SEG_CHAR_GRAVE;
         case '"': return SEG_CHAR_QUOTE;
         case '\'': return SEG_CHAR_APOSTROPHE;
-        
+
         default: return SEG_CHAR_EMPTY;
     }
 }
@@ -224,10 +297,10 @@ bool segchar_convert_string(const char* str,
     {
         return false;
     }
-    
+
     uint16_t length = 0;
     bool dot_expected = false;
-    
+
     while (*str && length < buffer_size)
     {
         if (*str == '.')
@@ -239,18 +312,18 @@ bool segchar_convert_string(const char* str,
         {
             SegmentChar ch = segchar_from_ascii(*str);
             buffer[length++] = ch;
-            
+
             // Здесь можно обработать точку, если нужно
             // В реальном коде нужно сохранить информацию о точках отдельно
         }
-        
+
         str++;
     }
-    
+
     if (converted_length)
     {
         *converted_length = length;
     }
-    
+
     return true;
 }
