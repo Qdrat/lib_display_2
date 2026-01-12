@@ -7,5 +7,5 @@ NN/
 *.d 
 .mxproject
 *.ioc
-.vscode/
+vscode/
 .setup_vscode.py
