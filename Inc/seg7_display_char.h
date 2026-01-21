@@ -1,5 +1,5 @@
-#ifndef SEGMENT_LCD_CHAR_H
-#define SEGMENT_LCD_CHAR_H
+#ifndef SEG7_DISPLAY_CHAR_H
+#define SEG7_DISPLAY_CHAR_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -77,18 +77,10 @@ typedef enum
     SEG_CHAR_TILDE,      // '~'
     SEG_CHAR_CARET,      // '^'
     SEG_CHAR_GRAVE,      // '`'
-    SEG_CHAR_EMPTY,      // Пусто (все сегменты выключены)
+    SEG_CHAR_EMPTY = 0x40,      // Пусто (все сегменты выключены)
     
-    // Специальные символы
-    SEG_CHAR_ARROW_UP,
-    SEG_CHAR_ARROW_DOWN,
-    SEG_CHAR_ARROW_LEFT,
-    SEG_CHAR_ARROW_RIGHT,
-    SEG_CHAR_HEART,
-    SEG_CHAR_SMILE,
-    SEG_CHAR_SAD,
-    SEG_CHAR_BELL,
-    
+	SEG_CHAR_LOX,
+
     SEG_CHAR_COUNT       // Общее количество символов
 } SegmentChar;
 
@@ -99,65 +91,41 @@ typedef struct
     const uint8_t* codes;        // Массив кодов
     uint16_t size;               // Размер таблицы
     uint8_t default_char;        // Код символа по умолчанию
+    uint8_t dot_bit_mask;        // Битовая маска для точки
 } SegmentTable;
 
 // ============== Управление таблицами ==============
 
 /**
- * @brief Получение стандартной таблицы для общего катода
+ * @brief Получение стандартной таблицы (общий катод)
  */
-const SegmentTable* segchar_get_default_table_cc(void);
+const SegmentTable* segchar_get_default_table(void);
 
-/**
- * @brief Получение стандартной таблицы для общего анода
- */
-const SegmentTable* segchar_get_default_table_ca(void);
-
-/**
- * @brief Создание пользовательской таблицы
- * 
- * @param name Название таблицы
- * @param codes Массив кодов (должен содержать SEG_CHAR_COUNT элементов)
- * @param default_char Символ по умолчанию
- * @return SegmentTable* Указатель на таблицу (NULL при ошибке)
- */
-SegmentTable* segchar_create_table(const char* name, 
-                                  const uint8_t* codes, 
-                                  uint8_t default_char);
 
 /**
  * @brief Получение кода сегмента для символа
  * 
  * @param character Символ
  * @param table Таблица кодов (NULL для стандартной)
- * @param is_common_cathode Тип индикатора
- * @return uint8_t Код сегмента
+ * @param invert_output Инвертировать вывод (для общего анода)
+ * @return uint8_t Код сегмента (уже с инверсией, если нужно)
  */
-uint8_t segchar_get_code(SegmentChar character, 
+uint8_t segchar_get_code(uint8_t character, 
                         const SegmentTable* table, 
-                        bool is_common_cathode);
+                        bool invert_output);
+
 
 /**
  * @brief Конвертация ASCII символа в SegmentChar
- * 
- * @param ascii_char ASCII символ
- * @return SegmentChar Соответствующий SegmentChar
  */
-SegmentChar segchar_from_ascii(char ascii_char);
+uint8_t segchar_from_ascii(char ascii_char);
 
 /**
  * @brief Конвертация строки в массив SegmentChar
- * 
- * @param str Входная строка
- * @param buffer Выходной буфер
- * @param buffer_size Размер буфера
- * @param converted_length Длина конвертированной строки
- * @return true Успех
- * @return false Ошибка
  */
 bool segchar_convert_string(const char* str, 
-                           SegmentChar* buffer, 
+                           uint8_t* buffer, 
                            uint16_t buffer_size, 
                            uint16_t* converted_length);
 
-#endif // SEGMENT_LCD_CHAR_H
+#endif // SEG7_DISPLAY_CHAR_H

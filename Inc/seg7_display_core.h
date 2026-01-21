@@ -1,5 +1,5 @@
-#ifndef SEGMENT_LCD_CORE_H
-#define SEGMENT_LCD_CORE_H
+#ifndef SEG7_DISPLAY_CORE_H
+#define SEG7_DISPLAY_CORE_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -16,44 +16,56 @@ typedef enum
     LCD_CORE_ERROR_TIMER_NOT_SET
 } LcdCoreError;
 
-// ============== Типы подключения ==============
-typedef enum
-{
-    LCD_TYPE_COMMON_CATHODE = 0,
-    LCD_TYPE_COMMON_ANODE = 1
-} LcdType;
 
 // ============== Callback-типы ==============
-// Функция установки сегментов (маска 8 бит: 7-сегменты + точка)
-typedef void (*LcdSegmentCallback)(uint8_t segment_mask);
+// Функция установки сегментов
+typedef void (*LcdSegmentCallback)(uint8_t segment_mask,  void* ctx);
 
 // Функция управления разрядом (digit_index, состояние)
-typedef void (*LcdDigitCallback)(uint8_t digit_index, bool state);
+typedef void (*LcdDigitCallback)(uint8_t digit_index, bool state,  void* ctx);
+
+// Функция одновременной установки сегментов и разряда (segment_mask, digit_index)
+typedef void (*LcdIndicatorCallback)(uint8_t segment_mask, uint8_t digit_index, void* ctx);
 
 // Функция управления яркостью (0-100%)
-typedef void (*LcdBrightnessCallback)(uint8_t brightness);
+typedef void (*LcdBrightnessCallback)(uint8_t brightness,  void* ctx);
 
 // Функция получения времени (миллисекунды)
 typedef uint32_t (*LcdTimeCallback)(void);
 
+// ============== Режимы управления дисплеем ==============
+typedef enum
+{
+    LCD_MODE_SEPARATE = 0,    // Раздельное управление (set_segments + set_digit)
+    LCD_MODE_COMBINED = 1,    // Совместное управление (set_indicator)
+    LCD_MODE_AUTO = 2         // Автовыбор (если set_indicator != NULL, то COMBINED, иначе SEPARATE)
+} LcdControlMode;
+
+
 // ============== Структура конфигурации ядра ==============
 typedef struct
 {
-    // Аппаратные callback
+    // Callback-функции
     LcdSegmentCallback set_segments;
     LcdDigitCallback set_digit;
+    LcdIndicatorCallback set_indicator;
     LcdBrightnessCallback set_brightness;
+    LcdTimeCallback get_time_ms;
+
+    // Контекст для callback-функций
+    void* ctx;
     
+    // Режим управления
+    LcdControlMode control_mode;
+
     // Конфигурация дисплея
     uint8_t digits_count;          // Количество разрядов
-    LcdType type;                  // Тип подключения
     uint16_t refresh_rate_hz;      // Частота обновления (Гц)
-    
+    uint8_t dot_bit_mask;          // Битовая маска для точки (обычно 0x80)
+    bool invert_output;            // Инвертировать вывод (для общего анода)
+
     // Пользовательская таблица кодов (NULL для стандартной)
     const uint8_t* custom_segment_table;
-    
-    // Системные callback
-    LcdTimeCallback get_time_ms;
     
     // Внутренние поля (инициализируются библиотекой)
     struct
@@ -91,7 +103,7 @@ LcdCoreError lcd_core_update(LcdCoreConfig* config);
  * 
  * @param config Конфигурация ядра
  * @param digit Индекс разряда
- * @param segment_mask Маска сегментов (биты 0-6: сегменты, бит 7: точка)
+ * @param segment_mask Маска сегментов (без точки)
  * @return LcdCoreError Код ошибки
  */
 LcdCoreError lcd_core_set_segment_mask(LcdCoreConfig* config, 
@@ -135,4 +147,4 @@ LcdCoreError lcd_core_set_brightness(LcdCoreConfig* config, uint8_t brightness);
  */
 uint32_t lcd_core_get_time(const LcdCoreConfig* config);
 
-#endif // SEGMENT_LCD_CORE_H
+#endif // SEG7_DISPLAY_CORE_H
